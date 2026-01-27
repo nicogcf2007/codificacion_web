@@ -3,7 +3,7 @@ Main FastAPI Application
 Survey Coding with AI - Backend Server
 """
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 import socketio
@@ -115,20 +115,20 @@ if os.path.exists(frontend_dist):
     # Mount assets
     api_app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
     
-    # Catch-all route for SPA - MOVIDO AL FINAL Y SOLO SI NO ES API
-    # @api_app.get("/{full_path:path}")
-    # async def serve_app(full_path: str):
-    #     if full_path.startswith("api"):
-    #         raise HTTPException(status_code=404, detail="Not found")
+    # Catch-all route for SPA
+    @api_app.get("/{full_path:path}")
+    async def serve_app(full_path: str):
+        # Don't intercept API routes
+        if full_path.startswith("api") or full_path.startswith("docs") or full_path.startswith("openapi.json"):
+             raise HTTPException(status_code=404, detail="Not found")
             
-    #     # Check if file exists in dist (e.g. favicon.ico, robots.txt)
-    #     file_path = os.path.join(frontend_dist, full_path)
-    #     if os.path.exists(file_path) and os.path.isfile(file_path):
-    #         return FileResponse(file_path)
+        # Check if file exists in dist (e.g. favicon.ico, robots.txt)
+        file_path = os.path.join(frontend_dist, full_path)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
             
-    #     # Return index.html for any other route (SPA)
-    #     return FileResponse(os.path.join(frontend_dist, "index.html"))
-
+        # Return index.html for any other route (SPA)
+        return FileResponse(os.path.join(frontend_dist, "index.html"))
 
 @api_app.on_event("shutdown")
 async def shutdown_event():
@@ -136,17 +136,6 @@ async def shutdown_event():
     print("=" * 60)
     print("Survey Coding API - Shutting down")
     print("=" * 60)
-
-
-@api_app.get("/")
-async def root():
-    """Root endpoint"""
-    return {
-        "message": "Survey Coding API",
-        "version": "1.0.0",
-        "status": "running",
-        "docs": "/docs"
-    }
 
 
 @api_app.get("/health")
