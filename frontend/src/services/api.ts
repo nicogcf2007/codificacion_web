@@ -12,6 +12,7 @@ import type {
 } from '../types';
 
 // Get API URL from environment or use default (relative in prod, localhost in dev)
+// @ts-ignore
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '');
 
 // Create axios instance with default config

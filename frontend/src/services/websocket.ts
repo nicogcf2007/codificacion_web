@@ -6,6 +6,7 @@ import { toast } from 'react-toastify';
 import type { ProgressUpdate, StatusUpdate } from '../types';
 
 // Get WebSocket URL from environment or use default
+// @ts-ignore
 const WS_URL = import.meta.env.VITE_WS_URL || (import.meta.env.DEV ? 'http://localhost:8000' : window.location.origin);
 
 export class WebSocketClient {

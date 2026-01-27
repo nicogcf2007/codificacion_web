@@ -6,13 +6,13 @@ import type { ProgressUpdate, StatusUpdate, ProcessingResults } from '../types';
 
 interface ProcessingMonitorProps {
   sessionId: string;
-  taskId: string;
+  // taskId: string; // Not currently used but kept for interface compatibility
   onComplete: (results: ProcessingResults) => void;
 }
 
 const ProcessingMonitor: React.FC<ProcessingMonitorProps> = ({
   sessionId,
-  taskId,
+  // taskId, // Not currently used
   onComplete,
 }) => {
   const [progress, setProgress] = useState(0);
