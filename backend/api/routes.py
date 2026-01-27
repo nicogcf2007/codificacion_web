@@ -428,6 +428,25 @@ async def stop_processing(session_id: str):
 
 
 
+@router.delete("/cleanup/{session_id}")
+async def cleanup_session(session_id: str):
+    """
+    Delete session and cleanup temporary files
+    """
+    try:
+        # Check if session exists (even if not, we return success for idempotency)
+        if session_manager.session_exists(session_id):
+            session_manager.delete_session(session_id)
+            
+        return {"status": "ok", "message": "Session cleaned up successfully"}
+            
+    except Exception as e:
+        print(f"Error in cleanup_session endpoint: {e}")
+        # Log error but return 500
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+
 @router.get("/download/responses/{session_id}")
 async def download_responses(session_id: str):
     """

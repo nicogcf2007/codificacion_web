@@ -5,7 +5,7 @@ import Configuration from './components/Configuration';
 import ProcessingMonitor from './components/ProcessingMonitor';
 import Results from './components/Results';
 import { wsClient } from './services/websocket';
-import { startProcessing, handleAPIError } from './services/api';
+import { startProcessing, handleAPIError, cleanupSession } from './services/api';
 import type {
   AppStep,
   UploadResponse,
@@ -21,6 +21,10 @@ function App() {
   const [results, setResults] = useState<ProcessingResults | null>(null);
 
   const handleFilesUploaded = (data: UploadResponse) => {
+    // If there was a previous session (e.g. from back button), clean it up
+    if (sessionId && sessionId !== data.session_id) {
+      cleanupSession(sessionId).catch(console.error);
+    }
     setSessionId(data.session_id);
     setColumns(data.columns);
     setStep('configure');
@@ -59,6 +63,12 @@ function App() {
   };
 
   const handleReset = () => {
+    // Cleanup backend session when resetting
+    const currentSessionId = sessionId;
+    if (currentSessionId) {
+      cleanupSession(currentSessionId).catch(console.error);
+    }
+
     wsClient.disconnect(); // Disconnect when resetting the app
     setStep('upload');
     setSessionId(null);

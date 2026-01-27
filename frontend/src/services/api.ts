@@ -88,6 +88,18 @@ export const stopProcessing = async (sessionId: string): Promise<StopResponse> =
 };
 
 /**
+ * Cleanup session and temporary files
+ */
+export const cleanupSession = async (sessionId: string): Promise<void> => {
+  try {
+    await apiClient.delete(`/api/cleanup/${sessionId}`);
+  } catch (error) {
+    console.warn('Cleanup failed:', error);
+    // Don't throw, just log
+  }
+};
+
+/**
  * Get download URL for processed responses
  */
 export const getResponsesDownloadUrl = (sessionId: string): string => {
