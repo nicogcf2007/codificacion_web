@@ -6,7 +6,7 @@ import type { ProgressUpdate, StatusUpdate, ProcessingResults } from '../types';
 
 interface ProcessingMonitorProps {
   sessionId: string;
-  // taskId: string; // Not currently used but kept for interface compatibility
+  taskId?: string; // Optional to satisfy interface compatibility
   onComplete: (results: ProcessingResults) => void;
 }
 
