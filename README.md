@@ -1,0 +1,118 @@
+# Sistema de Codificación Automática de Encuestas con IA
+
+Aplicación web para codificar automáticamente respuestas de encuestas usando inteligencia artificial (OpenAI).
+
+## Estructura del Proyecto
+
+```
+.
+├── backend/              # Backend Python (FastAPI)
+│   ├── core/            # Lógica de negocio
+│   ├── api/             # Endpoints REST
+│   ├── requirements.txt # Dependencias Python
+│   └── .env.example     # Variables de entorno ejemplo
+│
+├── frontend/            # Frontend React + TypeScript
+│   ├── src/            # Código fuente
+│   ├── package.json    # Dependencias Node
+│   └── .env.example    # Variables de entorno ejemplo
+│
+├── ui.py               # Script original (lógica reutilizada)
+└── config.py           # Configuración API keys
+```
+
+## Requisitos del Sistema
+
+- Python 3.11+
+- Node.js 18+
+- npm o yarn
+
+## Instalación
+
+### Backend
+
+```bash
+cd backend
+python -m venv venv
+
+# Windows
+venv\Scripts\activate
+
+# Linux/Mac
+source venv/bin/activate
+
+pip install -r requirements.txt
+
+# Configurar variables de entorno
+copy .env.example .env
+# Editar .env y agregar tu OPENAI_API_KEY
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+
+# Configurar variables de entorno
+copy .env.example .env
+```
+
+## Ejecución en Desarrollo
+
+### Iniciar Backend
+
+```bash
+cd backend
+# Activar entorno virtual primero
+uvicorn main:app --reload --port 8000
+```
+
+### Iniciar Frontend
+
+```bash
+cd frontend
+npm run dev
+```
+
+La aplicación estará disponible en:
+- Frontend: http://localhost:5173
+- Backend API: http://localhost:8000
+- API Docs: http://localhost:8000/docs
+
+## Uso
+
+1. **Cargar Archivos**: Sube el archivo de respuestas y el archivo de códigos (Excel)
+2. **Configurar**: Selecciona las columnas a procesar y ajusta parámetros
+3. **Procesar**: Inicia el procesamiento y monitorea el progreso en tiempo real
+4. **Descargar**: Descarga los archivos procesados con las codificaciones aplicadas
+
+## Características
+
+- ✅ Carga de archivos Excel
+- ✅ Procesamiento con IA (OpenAI GPT)
+- ✅ Monitoreo en tiempo real con WebSockets
+- ✅ Creación automática de nuevas etiquetas
+- ✅ Manejo de códigos especiales (66, 77, 88, 99)
+- ✅ Procesamiento de columnas "_OTRO"
+- ✅ Interfaz responsiva
+- ✅ Manejo robusto de errores
+
+## Tecnologías
+
+**Backend:**
+- FastAPI
+- Pandas
+- OpenAI Python SDK
+- Python-SocketIO
+
+**Frontend:**
+- React 18
+- TypeScript
+- TailwindCSS
+- Socket.io-client
+- Axios
+
+## Licencia
+
+Privado
