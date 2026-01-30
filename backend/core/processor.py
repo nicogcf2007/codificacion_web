@@ -82,23 +82,21 @@ class SurveyProcessor:
         start_code = config.get('start_code', 501)
         
         # Prepare limit dictionaries
-        limit_77 = {
-            'count': 0,
-            'max': start_code,
-            'new_code': 0,
-            'new_labels': []
-        }
-        
+        # limit_labels is now GLOBAL for the whole process
         limit_labels = {
             'count': 0,
             'max': max_new_labels
+        }
+        
+        limit_77 = {
+            'new_labels': []
         }
         
         # Process responses with callbacks
         processed_responses_df, updated_codes_df = logic.process_responses(
             responses_df=responses_df,
             codes_df=codes_df,
-            response_columns=columns,
+            columns_config=columns, # Pass columns config object list
             question_column=question_column,
             limit_77=limit_77,
             limit_labels=limit_labels,

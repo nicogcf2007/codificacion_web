@@ -40,8 +40,15 @@ export interface StopResponse {
 }
 
 // Configuration types
+export interface ColumnConfig {
+  name: string;
+  multiLabel: boolean;
+  maxLabels: number;
+  context: string;
+}
+
 export interface ProcessingConfig {
-  columns: string[];
+  columns: ColumnConfig[];
   question_column: string;
   max_new_labels: number;
   start_code: number;

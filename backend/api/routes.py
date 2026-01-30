@@ -36,9 +36,15 @@ class UploadResponse(BaseModel):
     message: str
 
 
+class ColumnConfig(BaseModel):
+    name: str
+    multiLabel: bool
+    maxLabels: int
+    context: str
+
 class ProcessRequest(BaseModel):
     session_id: str
-    columns: List[str]
+    columns: List[ColumnConfig]
     question_column: str = "Nombre de la Pregunta"
     max_new_labels: int = 8
     start_code: int = 501
@@ -270,8 +276,11 @@ async def start_processing(
             raise HTTPException(status_code=400, detail="Session is already processing")
         
         # Prepare config
+        # Convert Pydantic models to dicts for internal processing
+        columns_config = [col.dict() for col in request.columns]
+        
         config = {
-            'columns': request.columns,
+            'columns': columns_config,
             'question_column': request.question_column,
             'max_new_labels': request.max_new_labels,
             'start_code': request.start_code

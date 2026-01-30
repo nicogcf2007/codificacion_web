@@ -43,7 +43,7 @@ def request_openai(messages, max_retries=5, stop_requested_check=None):
         
         try:
             response = client.chat.completions.create(
-                model="gpt-5",
+                model="gpt-4o",
                 messages=messages,
                 max_completion_tokens=400
             )

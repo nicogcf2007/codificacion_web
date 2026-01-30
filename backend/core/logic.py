@@ -50,7 +50,7 @@ def request_openai(messages: List[Dict[str, str]], max_retries: int = 5,
         
         try:
             response = client.chat.completions.create(
-                model="gpt-5",
+                model="gpt-4o",
                 messages=messages,
                 max_completion_tokens=400
             )
@@ -101,14 +101,22 @@ def get_next_valid_code(existing_codes: pd.Series) -> str:
 
 def assign_labels_to_response(question: str, response: str, labels: List[str], 
                               codes: List[str], is_single_response: bool = False,
-                              stop_requested_check: Optional[Callable] = None) -> str:
+                              stop_requested_check: Optional[Callable] = None,
+                              max_labels: int = 6,
+                              context: str = "") -> str:
     """Assign labels to a survey response using AI"""
     labels_str = ', '.join([f"{label} (code: {code})" for label, code in zip(labels, codes)])
+    
+    context_instruction = ""
+    if context:
+        context_instruction = f"CONTEXTO ADICIONAL SOBRE LA PREGUNTA: {context}\nUsa este contexto para entender mejor el significado de las respuestas."
+
     messages = [
         {"role": "system", 
          "content": "You are an expert in coding survey responses with a focus on both 'thematic match' and 'conceptual match.' Assign codes accurately, concisely, and strictly based on the provided instructions without additional comments."},
         {"role": "user", 
          "content": f"""The question is: {question}
+         {context_instruction}
          The response is: {response}
          The available codes are: {labels_str}
          VERY IMPORTANT:
@@ -123,7 +131,7 @@ def assign_labels_to_response(question: str, response: str, labels: List[str],
          4. Using codes 66, 77, 88, and 99 unless strictly necessary.
          5. Do not combine codes 66, 77, 88, or 99 with other codes or with each other.
          6. Provide only the numeric codes in your response, separated by semicolons if multiple codes are assigned.
-         7. Do not assign more than 6 codes per answer.
+         7. Do not assign more than {max_labels} codes per answer.
          9. If the answer is not logical text and is just signs or symbols, assign code 99.
          10. Assign only one code if this is a single response question.
          """}
@@ -242,12 +250,13 @@ def save_new_label(codes_df: pd.DataFrame, question: str, label: str, new_code: 
 
 def process_response(question: str, response: str, available_labels: List[str],
                     available_codes: List[str], limit_77: Dict, limit_labels: Dict,
-                    codes_df: pd.DataFrame, stop_requested_check: Optional[Callable] = None) -> Tuple[str, pd.DataFrame]:
+                    codes_df: pd.DataFrame, stop_requested_check: Optional[Callable] = None,
+                    max_labels: int = 6, context: str = "") -> Tuple[str, pd.DataFrame]:
     """Process a single response and assign codes"""
     global questions_dict
     
     response_str = str(response).strip().lower()
-    is_single_response = '(respuesta única)' in question
+    is_single_response = '(respuesta única)' in question or max_labels == 1
 
     excluded_codes = {'66', '77', '88', '99', '777', '888', '999'}
     filtered_labels_codes = [
@@ -260,14 +269,16 @@ def process_response(question: str, response: str, available_labels: List[str],
 
     assigned_codes = assign_labels_to_response(
         question, response_str, filtered_labels, filtered_codes, 
-        is_single_response, stop_requested_check
+        is_single_response, stop_requested_check,
+        max_labels=max_labels, context=context
     )
     
     if assigned_codes == "NEW_LABEL_NEEDED" or assigned_codes == "":
         print(f"Etiqueta nueva necesaria para la respuesta: '{response_str}'")
 
+        # Check global limit of new labels created across the entire process
         if limit_labels['count'] >= limit_labels['max']:
-            print(f"Límite de nuevas etiquetas alcanzado para la pregunta '{question}'. Asignando código 77.")
+            print(f"Límite GLOBAL de nuevas etiquetas alcanzado ({limit_labels['max']}). Asignando código 77.")
             assigned_codes = "77"
         else:
             new_label = create_new_labels(
@@ -347,7 +358,7 @@ def group_labels_codes(selected_questions: pd.DataFrame, response_columns: List[
 
 
 def process_responses(responses_df: pd.DataFrame, codes_df: pd.DataFrame, 
-                     response_columns: List[str], question_column: str,
+                     columns_config: List[Dict], question_column: str,
                      limit_77: Dict, limit_labels: Dict,
                      progress_callback: Optional[Callable] = None,
                      status_callback: Optional[Callable] = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -355,6 +366,13 @@ def process_responses(responses_df: pd.DataFrame, codes_df: pd.DataFrame,
     global PROCESS_STOPPED, MODIFIED_CELLS, questions_dict
     
     print("EJECUTANDO PROCESS_RESPONSES")
+    
+    # Extract column names from config
+    response_columns = [col['name'] for col in columns_config]
+    
+    # Create a map for quick config lookup
+    config_map = {col['name']: col for col in columns_config}
+    
     selected_questions = select_columns(codes_df, question_column)
     questions_dict = group_labels_codes(selected_questions, response_columns)
     new_labels = []
@@ -427,10 +445,20 @@ def process_responses(responses_df: pd.DataFrame, codes_df: pd.DataFrame,
                     available_codes, available_labels = zip(*data)
                     available_labels = list(available_labels)
                     available_codes = list(available_codes)
+                    
+                    # Get specific config for this column
+                    col_config = config_map.get(col, {})
+                    max_labels = col_config.get('maxLabels', 6)
+                    context = col_config.get('context', "")
+                    
+                    # If multi-label is false, force max_labels to 1
+                    if not col_config.get('multiLabel', False):
+                        max_labels = 1
 
                     assigned_codes, updated_codes_df = process_response(
                         question, response, available_labels, available_codes, 
-                        limit_77, limit_labels, updated_codes_df, check_stop
+                        limit_77, limit_labels, updated_codes_df, check_stop,
+                        max_labels=max_labels, context=context
                     )
 
                     mask = responses_df[col] == response
