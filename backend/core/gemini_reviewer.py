@@ -101,6 +101,10 @@ class SurveyReviewer:
         modified_responses_df = original_responses_df.copy()
         codes_df = pd.read_excel(self.codes_path, sheet_name="Codificación")
 
+        # Cache para evitar llamadas repetitivas a la IA
+        # Key: (pregunta, respuesta, codigos_asignados) -> Value: codigos_corregidos
+        review_cache = {}
+
         total_rows = 0
         for response_column in self.columns_to_check:
             code_column = "C" + response_column
@@ -155,8 +159,15 @@ class SurveyReviewer:
                     if pd.isna(response_text) or str(response_text).strip() == "":
                         processed_rows += 1
                         continue
-                        
-                    corrected_codes = verify_codes_with_gemini(question_text, response_text, assigned_codes, valid_codes, valid_labels)
+                    
+                    # Verificar caché
+                    cache_key = (question_text, str(response_text).strip(), str(assigned_codes).strip())
+                    if cache_key in review_cache:
+                        corrected_codes = review_cache[cache_key]
+                        # print(f"Usando resultado en caché para: {str(response_text)[:20]}...")
+                    else:
+                        corrected_codes = verify_codes_with_gemini(question_text, response_text, assigned_codes, valid_codes, valid_labels)
+                        review_cache[cache_key] = corrected_codes
                     
                     # Clean and format again
                     formatted_corrected_codes = ';'.join(['{:02d}'.format(int(code.strip())) for code in corrected_codes.split(';') if code.strip().isdigit()])
