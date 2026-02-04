@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from core.session import SessionManager
 from core.processor import SurveyProcessor
-from core.gemini_reviewer import SurveyReviewer
+from core.reviewer import SurveyReviewer
 from core.websocket import WebSocketManager
 
 # Create router

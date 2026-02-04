@@ -54,6 +54,13 @@ def request_openai(messages: List[Dict[str, str]], max_retries: int = 5,
                 messages=messages,
                 max_completion_tokens=400
             )
+            
+            print(f"\n[OpenAI Logic] Solicitud exitosa (Intento {attempt + 1})")
+            print("="*50)
+            print(f"[OpenAI Logic] Response Object: {response}")
+            print(f"[OpenAI Logic] Content: {response.choices[0].message.content}")
+            print("="*50)
+            
             return response
         except Exception as e:
             print(f"Error en la solicitud a OpenAI: {e}. Intento {attempt + 1} de {max_retries}.")

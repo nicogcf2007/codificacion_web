@@ -4,7 +4,7 @@ Provides a clean interface for processing surveys with callbacks
 """
 import pandas as pd
 from typing import Callable, Optional, Dict, List, Tuple
-from . import gemini_logic as logic
+from . import logic as logic
 
 
 class SurveyProcessor:

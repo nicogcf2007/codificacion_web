@@ -54,14 +54,24 @@ def verify_codes_with_openai(question_text, response_text, assigned_codes, valid
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
-            {"role": "system", "content": "Eres un experto en codificación de respuestas de encuestas. Asigna códigos de forma precisa y basada en las instrucciones dadas."},
+            {"role": "system", "content": "Eres un experto en codificación. TU RESPUESTA DEBE SER ÚNICAMENTE LOS CÓDIGOS SEPARADOS POR PUNTO Y COMA (Ej: 01;05). NO ESCRIBAS NADA DE TEXTO ADICIONAL, NI EXPLICACIONES, NI SALUDOS, NI COMILLAS. SOLO NÚMEROS Y ;."},
             {"role": "user", "content": prompt}
         ]
     )
+    
+    print("\n[OpenAI Reviewer] Solicitud exitosa")
+    print("="*50)
+    print(f"[OpenAI Reviewer] Response Object: {response}")
+    print(f"[OpenAI Reviewer] Content: {response.choices[0].message.content}")
+    print("="*50)
+    
     corrected_codes = response.choices[0].message.content.strip()
     
+    # Validación y limpieza de la respuesta
+    digits = [code.strip() for code in corrected_codes.split(';') if code.strip().isdigit()]
+    
     # Formateamos los códigos a dos dígitos
-    formatted_codes = ['{:02d}'.format(int(code.strip())) for code in corrected_codes.split(';') if code.strip().isdigit()]
+    formatted_codes = ['{:02d}'.format(int(code.strip())) for code in digits]
     return ';'.join(formatted_codes)
 
 def highlight_changes(file_path, modified_cells):
