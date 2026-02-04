@@ -115,6 +115,13 @@ export const getCodesDownloadUrl = (sessionId: string): string => {
 };
 
 /**
+ * Get download URL for reviewed responses
+ */
+export const getReviewedDownloadUrl = (sessionId: string): string => {
+  return `${API_URL}/api/download/reviewed/${sessionId}`;
+};
+
+/**
  * Health check
  */
 export const healthCheck = async (): Promise<{ status: string }> => {

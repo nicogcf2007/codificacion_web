@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from core.session import SessionManager
 from core.processor import SurveyProcessor
+from core.gemini_reviewer import SurveyReviewer
 from core.websocket import WebSocketManager
 
 # Create router
@@ -197,7 +198,7 @@ async def process_survey_task(session_id: str, config: Dict[str, Any]):
         )
         
         # Save results
-        await ws_manager.emit_status(session_id, 'processing', 'Guardando resultados...')
+        await ws_manager.emit_status(session_id, 'processing', 'Guardando resultados de codificación...')
         
         # Generate output paths
         import os
@@ -217,12 +218,50 @@ async def process_survey_task(session_id: str, config: Dict[str, Any]):
             output_responses_path, output_codes_path
         )
         
-        # Update session with results
+        # --- Start Review Process ---
+        await ws_manager.emit_status(session_id, 'processing', 'Iniciando revisión automática...')
+        
+        # Helper to bridge reviewer progress to websocket
+        def review_progress_cb(progress: float):
+            try:
+                # Review happens after coding, so we map 0-1 progress to a "Reviewing" state
+                # or just reuse the progress bar but maybe reset it or keep it at 100%?
+                # The user wants to see progress of review. 
+                # Let's say review is a separate phase. We'll emit progress events.
+                asyncio.run_coroutine_threadsafe(
+                    ws_manager.emit_progress(session_id, progress, "Revisando asignaciones..."),
+                    loop
+                )
+            except Exception as e:
+                print(f"Error in review progress callback: {e}")
+
+        def review_status_cb(message: str):
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    ws_manager.emit_status(session_id, 'processing', message),
+                    loop
+                )
+            except Exception as e:
+                print(f"Error in review status callback: {e}")
+
+        # Extract columns to check (all columns processed)
+        columns_to_check = [col['name'] for col in config['columns']]
+        
+        reviewer = SurveyReviewer(output_responses_path, output_codes_path, columns_to_check)
+        reviewer.set_progress_callback(review_progress_cb)
+        reviewer.set_status_callback(review_status_cb)
+        
+        # Run reviewer in executor
+        review_results = await loop.run_in_executor(None, reviewer.run)
+        
+        # Update session with results (including review)
         results = {
             'processed_columns': len(config.get('columns', [])),
             'total_records': len(processed_responses_df),
             'output_responses': output_responses_path,
-            'output_codes': output_codes_path
+            'output_codes': output_codes_path,
+            'review_results': review_results,
+            'output_reviewed': review_results['output_file']
         }
         
         session_manager.update_session_results(session_id, results)
@@ -230,7 +269,7 @@ async def process_survey_task(session_id: str, config: Dict[str, Any]):
         
         # Emit completion
         await ws_manager.emit_complete(session_id, results)
-        await ws_manager.emit_status(session_id, 'completed', 'Procesamiento completado')
+        await ws_manager.emit_status(session_id, 'completed', 'Procesamiento y revisión completados')
         
         # Remove from active tasks
         if session_id in active_tasks:
@@ -551,6 +590,51 @@ async def download_codes(session_id: str):
         
     except HTTPException:
         raise
+@router.get("/download/reviewed/{session_id}")
+async def download_reviewed(session_id: str):
+    """
+    Download reviewed responses file
+    
+    Args:
+        session_id: Session identifier
+        
+    Returns:
+        Excel file with reviewed responses
+    """
+    try:
+        # Validate session
+        if not session_manager.session_exists(session_id):
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        session = session_manager.get_session(session_id)
+        
+        # Check if processing is complete
+        if session['status'] != 'completed':
+            raise HTTPException(
+                status_code=400, 
+                detail="Processing not completed yet"
+            )
+        
+        # Get output file path
+        results = session.get('results', {})
+        file_path = results.get('output_reviewed')
+        
+        if not file_path or not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="Reviewed file not found")
+        
+        # Generate filename with timestamp
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"respuestas_revisadas_{timestamp}.xlsx"
+        
+        return FileResponse(
+            path=file_path,
+            filename=filename,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Error in download_codes endpoint: {e}")
+        print(f"Error in download_reviewed endpoint: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

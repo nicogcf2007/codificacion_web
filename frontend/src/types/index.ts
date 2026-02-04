@@ -77,11 +77,18 @@ export interface StatusUpdate {
   message: string;
 }
 
+// Review results
+export interface ReviewResults {
+  corrections_made: number;
+  total_reviewed: number;
+}
+
 // Processing results
 export interface ProcessingResults {
   processed_columns: number;
   total_records: number;
   new_labels_created?: number;
+  review_results?: ReviewResults;
 }
 
 // Complete application state

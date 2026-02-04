@@ -1,5 +1,5 @@
 import React from 'react';
-import { getResponsesDownloadUrl, getCodesDownloadUrl } from '../services/api';
+import { getResponsesDownloadUrl, getCodesDownloadUrl, getReviewedDownloadUrl } from '../services/api';
 import type { ProcessingResults } from '../types';
 
 interface ResultsProps {
@@ -9,10 +9,11 @@ interface ResultsProps {
 }
 
 const Results: React.FC<ResultsProps> = ({ sessionId, results, onReset }) => {
-  const handleDownload = (type: 'responses' | 'codes') => {
-    const url = type === 'responses' 
-      ? getResponsesDownloadUrl(sessionId)
-      : getCodesDownloadUrl(sessionId);
+  const handleDownload = (type: 'responses' | 'codes' | 'reviewed') => {
+    let url = '';
+    if (type === 'responses') url = getResponsesDownloadUrl(sessionId);
+    else if (type === 'codes') url = getCodesDownloadUrl(sessionId);
+    else if (type === 'reviewed') url = getReviewedDownloadUrl(sessionId);
     
     window.location.href = url;
   };
@@ -132,6 +133,69 @@ const Results: React.FC<ResultsProps> = ({ sessionId, results, onReset }) => {
           </div>
         </div>
 
+        {/* Review Results Summary */}
+        {results.review_results && (
+          <div className="card mb-6">
+            <h2 className="text-2xl font-semibold text-gray-800 mb-6">
+              Resultados de la Revisión Automática
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-gradient-to-br from-yellow-50 to-orange-100 rounded-lg p-6 border border-orange-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-orange-600 font-medium mb-1">
+                      Correcciones Realizadas
+                    </p>
+                    <p className="text-3xl font-bold text-orange-900">
+                      {results.review_results.corrections_made}
+                    </p>
+                  </div>
+                  <svg
+                    className="w-12 h-12 text-orange-500 opacity-50"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                    />
+                  </svg>
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-teal-50 to-teal-100 rounded-lg p-6 border border-teal-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-teal-600 font-medium mb-1">
+                      Registros Revisados
+                    </p>
+                    <p className="text-3xl font-bold text-teal-900">
+                      {results.review_results.total_reviewed}
+                    </p>
+                  </div>
+                  <svg
+                    className="w-12 h-12 text-teal-500 opacity-50"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Download Section */}
         <div className="card mb-6">
           <h2 className="text-2xl font-semibold text-gray-800 mb-6">
@@ -215,6 +279,46 @@ const Results: React.FC<ResultsProps> = ({ sessionId, results, onReset }) => {
                   strokeLinejoin="round"
                   strokeWidth={2}
                   d="M9 5l7 7-7 7"
+                />
+              </svg>
+            </button>
+
+            <button
+              onClick={() => handleDownload('reviewed')}
+              className="flex items-center justify-between p-6 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-lg transition-all duration-200 shadow-md hover:shadow-lg col-span-1 md:col-span-2"
+            >
+              <div className="flex items-center space-x-4">
+                <svg
+                  className="w-10 h-10"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+                <div className="text-left">
+                  <p className="font-semibold text-lg">Respuestas Revisadas (IA)</p>
+                  <p className="text-sm text-orange-100">
+                    Archivo con asignaciones verificadas y corregidas
+                  </p>
+                </div>
+              </div>
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
                 />
               </svg>
             </button>
