@@ -28,9 +28,23 @@ def request_gemini(messages, temperature=0.0, max_retries=3):
     for attempt in range(max_retries):
         try:
             # Re-initialize client per request to avoid stale connection/SSL issues
-            # Increased timeout to 120s and disabled SSL verification (common fix for handshake timeouts in corp networks)
-            # Warning: verify=False is insecure but necessary for debugging this network block
-            client = genai.Client(api_key=gemini_api_key, http_options={'timeout': 120})
+            # Using 120000 milliseconds (120 seconds) for http_options 'timeout'
+            # The library seems to interpret int as ms or requires >10s?
+            # Error message says "Manually set deadline 1s is too short. Minimum allowed deadline is 10s."
+            # This suggests that passing '120' might be interpreted as seconds but something is overriding it or unit is wrong.
+            # Let's try removing explicit timeout for now or setting it very high if it expects milliseconds.
+            # However, google-genai doc usually says seconds.
+            # The error "Manually set deadline 1s" is very strange if we passed 120.
+            # It might be that 'timeout' key in http_options is not the correct way for this client version?
+            # Or maybe it conflicts with some internal default.
+            
+            # Let's try initializing WITHOUT http_options first to see if default works, 
+            # as the library should handle defaults better than our manual overrides which are failing.
+            client = genai.Client(api_key=gemini_api_key) 
+            
+            # Alternatively, if we MUST set timeout, let's try setting it on the generate_content config if supported,
+            # or rely on default. The previous error was SSL handshake timeout (network), now it's Invalid Argument (config).
+            # Let's revert to standard client init.
             
             print(f"[Gemini] Intentando conectar con Google API (Intento {attempt+1})...")
 
