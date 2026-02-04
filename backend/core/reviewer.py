@@ -52,7 +52,7 @@ def verify_codes_with_openai(question_text, response_text, assigned_codes, valid
     client = OpenAI(api_key=openai_api_key_Codifiacion)
     
     response = client.chat.completions.create(
-        model="gpt-4o",
+        model="gpt-5",
         messages=[
             {"role": "system", "content": "Eres un experto en codificación. TU RESPUESTA DEBE SER ÚNICAMENTE LOS CÓDIGOS SEPARADOS POR PUNTO Y COMA (Ej: 01;05). NO ESCRIBAS NADA DE TEXTO ADICIONAL, NI EXPLICACIONES, NI SALUDOS, NI COMILLAS. SOLO NÚMEROS Y ;."},
             {"role": "user", "content": prompt}

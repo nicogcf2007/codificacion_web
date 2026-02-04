@@ -50,7 +50,7 @@ def request_openai(messages: List[Dict[str, str]], max_retries: int = 5,
         
         try:
             response = client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-5",
                 messages=messages,
                 max_completion_tokens=400
             )
