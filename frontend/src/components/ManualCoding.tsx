@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import axios from 'axios';
 import { API_URL } from '../services/api';
-import type { FrequencyItem, ProcessingConfig, ColumnConfig } from '../types';
+import type { FrequencyItem, ProcessingConfig } from '../types';
 
 interface ManualCodingProps {
   sessionId: string;
