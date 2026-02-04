@@ -92,6 +92,17 @@ class SurveyProcessor:
             'new_labels': []
         }
         
+        # 1. Apply Manual Mappings (New Feature)
+        manual_mappings = config.get('manual_mappings', {})
+        if manual_mappings:
+            if self.status_callback:
+                self.status_callback("Aplicando codificación manual...")
+                
+            responses_df, modified = logic.apply_manual_coding(responses_df, manual_mappings)
+            
+            if self.status_callback:
+                self.status_callback(f"Codificación manual completada. {len(modified)} celdas pre-asignadas.")
+        
         # Process responses with callbacks
         processed_responses_df, updated_codes_df = logic.process_responses(
             responses_df=responses_df,

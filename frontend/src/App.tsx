@@ -4,6 +4,7 @@ import FileUpload from './components/FileUpload';
 import Configuration from './components/Configuration';
 import ProcessingMonitor from './components/ProcessingMonitor';
 import Results from './components/Results';
+import ManualCoding from './components/ManualCoding';
 import { wsClient } from './services/websocket';
 import { startProcessing, handleAPIError, cleanupSession } from './services/api';
 import type {
@@ -19,6 +20,7 @@ function App() {
   const [taskId, setTaskId] = useState<string | null>(null);
   const [columns, setColumns] = useState<string[]>([]);
   const [results, setResults] = useState<ProcessingResults | null>(null);
+  const [pendingConfig, setPendingConfig] = useState<ProcessingConfig | null>(null);
 
   const handleFilesUploaded = (data: UploadResponse) => {
     // If there was a previous session (e.g. from back button), clean it up
@@ -28,6 +30,11 @@ function App() {
     setSessionId(data.session_id);
     setColumns(data.columns);
     setStep('configure');
+  };
+
+  const handleConfigComplete = (config: ProcessingConfig) => {
+    setPendingConfig(config);
+    setStep('manual-coding');
   };
 
   const handleStartProcessing = async (config: ProcessingConfig) => {
@@ -90,8 +97,17 @@ function App() {
       {step === 'configure' && (
         <Configuration
           columns={columns}
-          onStartProcessing={handleStartProcessing}
+          onStartProcessing={handleConfigComplete} // Change: go to manual coding first
           onBack={handleBackToUpload}
+        />
+      )}
+
+      {step === 'manual-coding' && sessionId && pendingConfig && (
+        <ManualCoding
+          sessionId={sessionId}
+          config={pendingConfig}
+          onConfirm={handleStartProcessing}
+          onBack={() => setStep('configure')}
         />
       )}
 

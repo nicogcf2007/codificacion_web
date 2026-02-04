@@ -3,11 +3,33 @@
  */
 
 // Application state types
-export type AppStep = 'upload' | 'configure' | 'processing' | 'results';
+export type AppStep = 'upload' | 'configure' | 'manual-coding' | 'processing' | 'results';
 
 export type ProcessingStatus = 'idle' | 'processing' | 'completed' | 'error' | 'stopped';
 
-// File types
+// Manual Coding
+export interface FrequencyItem {
+    text: string;
+    count: number;
+    variations: string[];
+    display_text?: string;
+}
+
+export interface ManualCodingState {
+    frequencies: Record<string, FrequencyItem[]>;
+    // Mapping: {column: {text: code}}
+    mappings: Record<string, Record<string, string>>; 
+}
+
+// ... existing types ...
+
+export interface ProcessingConfig {
+  columns: ColumnConfig[];
+  question_column: string;
+  max_new_labels: number;
+  start_code: number;
+  manual_mappings?: Record<string, Record<string, string>>;
+}
 export interface UploadedFiles {
   responses: File | null;
   codes: File | null;
@@ -52,6 +74,7 @@ export interface ProcessingConfig {
   question_column: string;
   max_new_labels: number;
   start_code: number;
+  manual_mappings?: Record<string, Record<string, string>>;
 }
 
 // Session data

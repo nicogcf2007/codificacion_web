@@ -49,6 +49,17 @@ class ProcessRequest(BaseModel):
     question_column: str = "Nombre de la Pregunta"
     max_new_labels: int = 8
     start_code: int = 501
+    manual_mappings: Dict[str, Dict[str, str]] = {} # New field for manual codes
+
+class AnalyzeRequest(BaseModel):
+    session_id: str
+    columns: List[str]
+    top_n: int = 20
+    similarity_threshold: float = 80.0
+
+class AnalyzeResponse(BaseModel):
+    frequencies: Dict[str, List[Dict[str, Any]]]
+    message: str
 
 
 class ProcessResponse(BaseModel):
@@ -68,6 +79,52 @@ class StopResponse(BaseModel):
     status: str
     message: str
 
+
+
+@router.post("/analyze-frequencies", response_model=AnalyzeResponse)
+async def analyze_frequencies(request: AnalyzeRequest):
+    """
+    Analyze frequent responses for selected columns
+    """
+    try:
+        # Validate session
+        if not session_manager.session_exists(request.session_id):
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Get file paths
+        responses_path = session_manager.get_file_path(request.session_id, 'responses')
+        codes_path = session_manager.get_file_path(request.session_id, 'codes')
+        
+        # Load files (we only need responses_df really, but load_files does both)
+        processor = SurveyProcessor(request.session_id)
+        # Run in executor to avoid blocking
+        import asyncio
+        loop = asyncio.get_running_loop()
+        
+        responses_df, _ = await loop.run_in_executor(
+            None, processor.load_files, responses_path, codes_path
+        )
+        
+        from core import logic
+        frequencies = await loop.run_in_executor(
+            None, 
+            logic.get_frequent_responses,
+            responses_df, 
+            request.columns, 
+            request.top_n, 
+            request.similarity_threshold
+        )
+        
+        return AnalyzeResponse(
+            frequencies=frequencies,
+            message="Analysis completed successfully"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in analyze_frequencies endpoint: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
 @router.post("/upload", response_model=UploadResponse)
@@ -322,7 +379,8 @@ async def start_processing(
             'columns': columns_config,
             'question_column': request.question_column,
             'max_new_labels': request.max_new_labels,
-            'start_code': request.start_code
+            'start_code': request.start_code,
+            'manual_mappings': request.manual_mappings
         }
         
         # Save config to session
