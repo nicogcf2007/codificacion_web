@@ -70,8 +70,16 @@ def verify_codes_with_openai(question_text, response_text, assigned_codes, valid
     # Validación y limpieza de la respuesta
     digits = [code.strip() for code in corrected_codes.split(';') if code.strip().isdigit()]
     
+    # Eliminar duplicados manteniendo el orden
+    seen = set()
+    unique_digits = []
+    for code in digits:
+        if code not in seen:
+            seen.add(code)
+            unique_digits.append(code)
+    
     # Formateamos los códigos a dos dígitos
-    formatted_codes = ['{:02d}'.format(int(code.strip())) for code in digits]
+    formatted_codes = ['{:02d}'.format(int(code.strip())) for code in unique_digits]
     return ';'.join(formatted_codes)
 
 def highlight_changes(file_path, modified_cells):

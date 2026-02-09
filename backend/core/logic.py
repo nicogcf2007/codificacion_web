@@ -290,28 +290,46 @@ def process_response(question: str, response: str, available_labels: List[str],
             )
             
             if new_label:
-                existing_codes = codes_df.loc[codes_df['Nombre de la Pregunta'] == question, 'Cod']
-                new_code = get_next_valid_code(existing_codes)
-                codes_df, label_created = save_new_label(codes_df, question, new_label, new_code)
+                # Verificar si la etiqueta ya existe en codes_df para esta pregunta (evitar duplicados)
+                # Esto previene que se cree un nuevo código (ej: 11) si ya existe uno (ej: 10) para la misma etiqueta
+                existing_entry = codes_df.loc[
+                    (codes_df['Nombre de la Pregunta'] == question) & 
+                    (codes_df['Label'].astype(str).str.lower() == new_label.lower()), 
+                    'Cod'
+                ]
                 
-                if label_created:
-                    print(f"Nueva etiqueta creada: '{new_label}' con código {new_code}")
-
-                    available_codes.append(new_code)
-                    available_labels.append(new_label)
-
-                    limit_labels['count'] += 1
-                    limit_77['new_labels'].append((question, new_label, new_code))
-
-                    if question in questions_dict:
-                        questions_dict[question].add((new_code, new_label))
-                    else:
-                        questions_dict[question] = {(new_code, new_label)}
-                    
-                    assigned_codes = new_code
+                if not existing_entry.empty:
+                    # Usar código existente
+                    existing_code_val = existing_entry.iloc[0]
+                    try:
+                        assigned_codes = f"{int(existing_code_val):02d}"
+                    except:
+                        assigned_codes = str(existing_code_val)
+                    # print(f"Reutilizando etiqueta existente '{new_label}' con código {assigned_codes}")
                 else:
-                    print(f"No se pudo crear una nueva etiqueta para '{response_str}', asignando código 77")
-                    assigned_codes = "77"
+                    # Crear nuevo código si no existe
+                    existing_codes = codes_df.loc[codes_df['Nombre de la Pregunta'] == question, 'Cod']
+                    new_code = get_next_valid_code(existing_codes)
+                    codes_df, label_created = save_new_label(codes_df, question, new_label, new_code)
+                    
+                    if label_created:
+                        print(f"Nueva etiqueta creada: '{new_label}' con código {new_code}")
+
+                        available_codes.append(new_code)
+                        available_labels.append(new_label)
+
+                        limit_labels['count'] += 1
+                        limit_77['new_labels'].append((question, new_label, new_code))
+
+                        if question in questions_dict:
+                            questions_dict[question].add((new_code, new_label))
+                        else:
+                            questions_dict[question] = {(new_code, new_label)}
+                        
+                        assigned_codes = new_code
+                    else:
+                        print(f"No se pudo crear una nueva etiqueta para '{response_str}', asignando código 77")
+                        assigned_codes = "77"
             else:
                 print(f"No se generó una nueva etiqueta para '{response_str}', asignando código 77")
                 assigned_codes = "77"
@@ -765,6 +783,9 @@ def get_frequent_responses(responses_df: pd.DataFrame, columns: List[str], top_n
             if len(grouped_results) >= top_n:
                 break
         
+        # Sort grouped results by total count descending
+        grouped_results.sort(key=lambda x: x['count'], reverse=True)
+        
         result[col] = grouped_results
         
     return result
@@ -821,14 +842,15 @@ def apply_manual_coding(responses_df: pd.DataFrame, manual_mappings: Dict[str, D
             # 1. Exact Match (Normalized)
             if norm_val in normalized_map:
                 assigned_code = normalized_map[norm_val]
-            else:
-                # 2. Fuzzy Match
-                # Only if we have keys to check against
-                if map_keys:
-                    match = process.extractOne(norm_val, map_keys, scorer=fuzz.ratio, score_cutoff=similarity_threshold)
-                    if match:
-                        match_text, score, index = match
-                        assigned_code = normalized_map[match_text]
+            # else:
+            #     # 2. Fuzzy Match (Disabled to respect manual discard/selection)
+            #     # Since the frontend sends ALL validated variations as keys, exact match is sufficient.
+            #     # This prevents "discarded" variations from being accidentally matched via fuzzy logic.
+            #     if map_keys:
+            #         match = process.extractOne(norm_val, map_keys, scorer=fuzz.ratio, score_cutoff=similarity_threshold)
+            #         if match:
+            #             match_text, score, index = match
+            #             assigned_code = normalized_map[match_text]
             
             if assigned_code:
                 # Assign code
