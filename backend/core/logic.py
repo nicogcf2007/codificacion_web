@@ -279,9 +279,10 @@ def process_response(question: str, response: str, available_labels: List[str],
     if assigned_codes == "NEW_LABEL_NEEDED" or assigned_codes == "":
         print(f"Etiqueta nueva necesaria para la respuesta: '{response_str}'")
 
-        # Check global limit of new labels created across the entire process
+        # Check column limit of new labels
+        # Note: If max is 0, this condition is true (count >= 0)
         if limit_labels['count'] >= limit_labels['max']:
-            print(f"Límite GLOBAL de nuevas etiquetas alcanzado ({limit_labels['max']}). Asignando código 77.")
+            print(f"Límite de nuevas etiquetas para esta pregunta alcanzado ({limit_labels['count']}/{limit_labels['max']}). Asignando código 77.")
             assigned_codes = "77"
         else:
             new_label = create_new_labels(
@@ -497,15 +498,49 @@ def process_responses(responses_df: pd.DataFrame, codes_df: pd.DataFrame,
                     max_labels = col_config.get('maxLabels', 6)
                     context = col_config.get('context', "")
                     
+                    # New: Get per-column max new labels limit
+                    # Default to 8 if not specified (legacy behavior), but frontend now sets it
+                    # If 0, it means NO new labels allowed
+                    col_max_new_labels = col_config.get('maxNewLabels', 8)
+                    if col_max_new_labels is None: 
+                        col_max_new_labels = 8 # Fallback
+                    
+                    # Create a specific limit object for this column processing
+                    # We reuse 'limit_labels' structure but with column-specific max
+                    # NOTE: 'count' here should track NEW labels created for THIS column.
+                    # Since process_response increments the counter passed to it, we need a 
+                    # way to persist this counter PER COLUMN across loop iterations.
+                    # We can use a dictionary keyed by column name in the outer scope.
+                    
+                    # Initialize counter for this column if not exists
+                    if 'col_counters' not in limit_labels:
+                        limit_labels['col_counters'] = {}
+                    
+                    if col not in limit_labels['col_counters']:
+                        limit_labels['col_counters'][col] = 0
+                        
+                    # Create a proxy limit object that process_response can update
+                    # This is tricky because process_response expects a dict with 'count' and 'max'
+                    # and increments 'count'. 
+                    # We construct it on the fly.
+                    
+                    current_col_limit = {
+                        'count': limit_labels['col_counters'][col],
+                        'max': col_max_new_labels
+                    }
+                    
                     # If multi-label is false, force max_labels to 1
                     if not col_config.get('multiLabel', False):
                         max_labels = 1
 
                     assigned_codes, updated_codes_df = process_response(
                         question, response, available_labels, available_codes, 
-                        limit_77, limit_labels, updated_codes_df, check_stop,
+                        limit_77, current_col_limit, updated_codes_df, check_stop,
                         max_labels=max_labels, context=context
                     )
+                    
+                    # Update the persistent counter with the new value
+                    limit_labels['col_counters'][col] = current_col_limit['count']
 
                     responses_df.loc[mask, code_column] = assigned_codes
                     

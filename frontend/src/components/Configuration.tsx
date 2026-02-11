@@ -79,18 +79,18 @@ const Configuration: React.FC<ConfigurationProps> = ({
       return;
     }
 
-    if (maxNewLabels < 1) {
-      toast.error('El máximo de nuevas etiquetas debe ser mayor a 0');
-      return;
-    }
+    // if (maxNewLabels < 1) { ... } // Removed validation since 0 is valid
 
-    const finalConfigs = selectedColumns.map(col => columnConfigs[col]);
+    const finalConfigs = selectedColumns.map(col => ({
+      ...columnConfigs[col],
+      maxNewLabels: maxNewLabels // Apply global setting to each column
+    }));
 
     const config: ProcessingConfig = {
       columns: finalConfigs,
       question_column: 'Nombre de la Pregunta',
-      max_new_labels: maxNewLabels,
-      start_code: 501, // Default value since input was removed
+      max_new_labels: maxNewLabels, // Kept for backward compat, but logic uses per-column
+      start_code: 501, 
     };
 
     onStartProcessing(config);
@@ -216,7 +216,7 @@ const Configuration: React.FC<ConfigurationProps> = ({
                             )}
                           </div>
 
-                          {/* Context Textarea */}
+                            {/* Context Textarea */}
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
                               Contexto para la IA (Opcional)
@@ -257,18 +257,18 @@ const Configuration: React.FC<ConfigurationProps> = ({
                 {/* Max New Labels */}
                 <div>
                   <label className="label">
-                    Máximo de nuevas etiquetas (Total Global)
+                    Máximo de nuevas etiquetas (Por Pregunta)
                   </label>
                   <input
                     type="number"
-                    min="1"
+                    min="0"
                     max="100"
                     value={maxNewLabels}
-                    onChange={(e) => setMaxNewLabels(parseInt(e.target.value) || 1)}
+                    onChange={(e) => setMaxNewLabels(parseInt(e.target.value) || 0)}
                     className="input-field"
                   />
                   <p className="text-sm text-gray-500 mt-1">
-                    Límite total de nuevas etiquetas permitidas para todo el proceso
+                    Límite de nuevas etiquetas permitidas <strong>por cada pregunta</strong>. (0 = Ninguna)
                   </p>
                 </div>
 

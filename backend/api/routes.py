@@ -42,12 +42,13 @@ class ColumnConfig(BaseModel):
     multiLabel: bool
     maxLabels: int
     context: str
+    maxNewLabels: Optional[int] = 8 # Added field
 
 class ProcessRequest(BaseModel):
     session_id: str
     columns: List[ColumnConfig]
     question_column: str = "Nombre de la Pregunta"
-    max_new_labels: int = 8
+    max_new_labels: int = 0 # Deprecated, now per column
     start_code: int = 501
     manual_mappings: Dict[str, Dict[str, str]] = {} # New field for manual codes
 

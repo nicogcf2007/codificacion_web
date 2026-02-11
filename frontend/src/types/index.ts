@@ -67,6 +67,7 @@ export interface ColumnConfig {
   multiLabel: boolean;
   maxLabels: number;
   context: string;
+  maxNewLabels?: number; // Added
 }
 
 export interface ProcessingConfig {

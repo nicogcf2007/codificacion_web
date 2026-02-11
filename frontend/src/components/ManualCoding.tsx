@@ -56,15 +56,54 @@ const ManualCoding: React.FC<ManualCodingProps> = ({
     fetchFrequencies();
   }, [sessionId, config]);
 
-  const handleCodeChange = (column: string, text: string, code: string) => {
-    setMappings(prev => ({
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+
+  // ... useEffect ...
+
+  const toggleRow = (itemText: string) => {
+    setExpandedRows(prev => ({
       ...prev,
-      [column]: {
-        ...prev[column],
-        [text]: code
-      }
+      [itemText]: !prev[itemText]
     }));
   };
+
+  const handleVariationToggle = (column: string, groupText: string, variation: string) => {
+    setFrequencies(prev => {
+      const colFreqs = prev[column] ? [...prev[column]] : [];
+      const itemIndex = colFreqs.findIndex(f => f.text === groupText);
+      
+      if (itemIndex === -1) return prev;
+      
+      const item = { ...colFreqs[itemIndex] };
+      const currentVariations = [...item.variations];
+      
+      // If variations has it, remove it (discard). If not, add it back?
+      // Wait, we need to know the original variations to add it back.
+      // Better to keep a "discarded" set or just remove it from variations.
+      // If we remove it, the count should decrease.
+      
+      // Let's check if it exists in currentVariations
+      if (currentVariations.includes(variation)) {
+        // Remove it
+        item.variations = currentVariations.filter(v => v !== variation);
+        item.count--; // Decrease count
+        
+        // If count becomes 0 or no variations left, maybe remove the group? 
+        // Or keep it but it's empty.
+      } else {
+        // Add it back? This requires storing the original full list somewhere.
+        // For simplicity, let's assume we only support discarding for now.
+        // If user made a mistake, they might need to reset or we need more complex state.
+        // Let's implement "Discard" as "Remove from this group".
+        return prev;
+      }
+      
+      colFreqs[itemIndex] = item;
+      return { ...prev, [column]: colFreqs };
+    });
+  };
+
+  // ... handleCodeChange ...
 
   const handleFinish = () => {
     // Filter out empty codes
@@ -72,9 +111,23 @@ const ManualCoding: React.FC<ManualCodingProps> = ({
     
     Object.keys(mappings).forEach(col => {
         const colMap: Record<string, string> = {};
+        const colFreqs = frequencies[col] || [];
+        
         Object.entries(mappings[col]).forEach(([text, code]) => {
             if (code && code.trim() !== '') {
-                colMap[text] = code.trim();
+                // Find the group to get all variations
+                const group = colFreqs.find(f => f.text === text);
+                if (group) {
+                    // Map representative text
+                    colMap[text] = code.trim();
+                    // Map ALL variations currently in the group
+                    group.variations.forEach(variation => {
+                        colMap[variation] = code.trim();
+                    });
+                } else {
+                    // Should not happen if state is consistent, but fallback:
+                    colMap[text] = code.trim();
+                }
             }
         });
         if (Object.keys(colMap).length > 0) {
@@ -170,32 +223,72 @@ const ManualCoding: React.FC<ManualCodingProps> = ({
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {currentFrequencies.map((item, idx) => (
-                      <tr key={idx} className="hover:bg-blue-50 transition-colors group">
-                        <td className="p-4 text-gray-400 font-mono text-sm">{idx + 1}</td>
-                        <td className="p-4">
-                          <div className="font-medium text-gray-800">
-                            {item.display_text || item.text}
-                            <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
-                              x{item.count}
-                            </span>
-                          </div>
-                          {item.variations.length > 1 && (
-                            <div className="text-xs text-gray-400 mt-1 truncate max-w-lg">
-                              Variaciones: {item.variations.slice(0, 5).join(', ')} {item.variations.length > 5 && '...'}
+                      <React.Fragment key={item.text}>
+                        <tr 
+                          className={`hover:bg-blue-50 transition-colors group cursor-pointer ${expandedRows[item.text] ? 'bg-blue-50' : ''}`}
+                          onClick={() => toggleRow(item.text)}
+                        >
+                          <td className="p-4 text-gray-400 font-mono text-sm">{idx + 1}</td>
+                          <td className="p-4">
+                            <div className="flex items-center">
+                              <span className={`transform transition-transform duration-200 mr-3 text-gray-400 p-1 rounded-full hover:bg-blue-100 hover:text-blue-600 ${expandedRows[item.text] ? 'rotate-90' : ''}`}>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                  <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                                </svg>
+                              </span>
+                              <div className="font-medium text-gray-800">
+                                {item.display_text || item.text}
+                                <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                                  x{item.count}
+                                </span>
+                              </div>
                             </div>
-                          )}
-                        </td>
-                        <td className="p-4">
-                          <input
-                            type="text"
-                            placeholder="Ej: 01"
-                            maxLength={3}
-                            className="w-24 px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center font-mono text-lg transition-all"
-                            value={mappings[activeTab]?.[item.text] || ''}
-                            onChange={(e) => handleCodeChange(activeTab, item.text, e.target.value)}
-                          />
-                        </td>
-                      </tr>
+                            {item.variations.length > 1 && !expandedRows[item.text] && (
+                              <div className="text-xs text-gray-400 mt-1 ml-6 truncate max-w-lg">
+                                {item.variations.length} variaciones: {item.variations.slice(0, 5).join(', ')}...
+                              </div>
+                            )}
+                          </td>
+                          <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="text"
+                              placeholder="Ej: 01"
+                              maxLength={3}
+                              className="w-24 px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center font-mono text-lg transition-all"
+                              value={mappings[activeTab]?.[item.text] || ''}
+                              onChange={(e) => handleCodeChange(activeTab, item.text, e.target.value)}
+                            />
+                          </td>
+                        </tr>
+                        
+                        {/* Expanded Variations */}
+                        {expandedRows[item.text] && (
+                          <tr>
+                            <td colSpan={3} className="bg-gray-50 px-8 py-4 border-b border-gray-200">
+                              <div className="text-sm font-medium text-gray-700 mb-2">Variaciones agrupadas:</div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                {item.variations.map((variation, vIdx) => (
+                                  <div key={vIdx} className="flex items-center space-x-2 bg-white p-2 rounded border border-gray-200">
+                                    <button 
+                                      onClick={() => handleVariationToggle(activeTab, item.text, variation)}
+                                      className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50"
+                                      title="Descartar variación"
+                                    >
+                                      ✕
+                                    </button>
+                                    <span className="text-gray-600 truncate text-sm" title={variation}>
+                                      {variation}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="mt-2 text-xs text-gray-500">
+                                * Las variaciones descartadas no recibirán este código y serán procesadas por la IA.
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>

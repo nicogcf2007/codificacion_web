@@ -82,10 +82,10 @@ class SurveyProcessor:
         start_code = config.get('start_code', 501)
         
         # Prepare limit dictionaries
-        # limit_labels is now GLOBAL for the whole process
+        # Global counter removed, now handled per-column in logic.py
         limit_labels = {
             'count': 0,
-            'max': max_new_labels
+            'max': 9999 # Arbitrary high number as global limit is deprecated
         }
         
         limit_77 = {
