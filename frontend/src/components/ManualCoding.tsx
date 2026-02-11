@@ -103,7 +103,15 @@ const ManualCoding: React.FC<ManualCodingProps> = ({
     });
   };
 
-  // ... handleCodeChange ...
+  const handleCodeChange = (column: string, text: string, code: string) => {
+    setMappings(prev => ({
+      ...prev,
+      [column]: {
+        ...prev[column],
+        [text]: code
+      }
+    }));
+  };
 
   const handleFinish = () => {
     // Filter out empty codes
