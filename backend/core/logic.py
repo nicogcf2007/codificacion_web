@@ -821,6 +821,9 @@ def get_frequent_responses(responses_df: pd.DataFrame, columns: List[str], top_n
         # Sort grouped results by total count descending
         grouped_results.sort(key=lambda x: x['count'], reverse=True)
         
+        # Filter groups with less than 10 mentions (User requirement)
+        grouped_results = [g for g in grouped_results if g['count'] >= 10]
+        
         result[col] = grouped_results
         
     return result

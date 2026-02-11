@@ -3,7 +3,7 @@ API Routes - REST endpoints for the survey coding application
 """
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import os
 import pandas as pd
 from pydantic import BaseModel
