@@ -59,7 +59,7 @@ class SurveyProcessor:
         return responses_df.columns.tolist()
     
     def process(self, responses_df: pd.DataFrame, codes_df: pd.DataFrame,
-                config: Dict) -> Tuple[pd.DataFrame, pd.DataFrame]:
+                config: Dict, save_callback: Optional[Callable[[pd.DataFrame, pd.DataFrame], None]] = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Process responses with AI coding
         
@@ -71,6 +71,7 @@ class SurveyProcessor:
                 - question_column: Name of question column (default: 'Nombre de la Pregunta')
                 - max_new_labels: Maximum new labels to create (default: 8)
                 - start_code: Starting code for _OTRO columns (default: 501)
+            save_callback: Optional callback to save intermediate results
                 
         Returns:
             Tuple of (processed_responses_df, updated_codes_df)
@@ -112,7 +113,8 @@ class SurveyProcessor:
             limit_77=limit_77,
             limit_labels=limit_labels,
             progress_callback=self.progress_callback,
-            status_callback=self.status_callback
+            status_callback=self.status_callback,
+            save_callback=save_callback
         )
         
         return processed_responses_df, updated_codes_df
