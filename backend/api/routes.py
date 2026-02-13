@@ -207,58 +207,120 @@ async def upload_files(
 
 
 
-class ResumeRequest(BaseModel):
+class ReviewRequest(BaseModel):
     session_id: str
-    skip_current: bool = False
 
-@router.post("/resume", response_model=ProcessResponse)
-async def resume_processing(
-    request: ResumeRequest,
+@router.post("/start-review", response_model=ProcessResponse)
+async def start_review(
+    request: ReviewRequest,
     background_tasks: BackgroundTasks
 ):
     """
-    Resume processing for a session (optionally skipping the current error)
+    Start the review process independently
     """
     try:
         if not session_manager.session_exists(request.session_id):
             raise HTTPException(status_code=404, detail="Session not found")
             
         session = session_manager.get_session(request.session_id)
-        config = session.get('config')
         
+        # Check if already processing
+        if session['status'] == 'processing':
+            raise HTTPException(status_code=400, detail="Session is currently busy")
+            
+        # Get paths (assuming they exist from previous step)
+        results = session.get('results', {})
+        output_responses = results.get('output_responses')
+        output_codes = results.get('output_codes')
+        
+        if not output_responses or not os.path.exists(output_responses):
+             # Try to find uploaded files if this is a "Review Only" session (TODO)
+             raise HTTPException(status_code=400, detail="Files to review not found. Please code first.")
+
+        # Get config
+        config = session.get('config')
         if not config:
-            raise HTTPException(status_code=400, detail="Configuration not found")
-            
-        # Get active task ID if exists or generate new one
-        task_id = session.get('task_id')
-        if not task_id:
-            import uuid
-            task_id = str(uuid.uuid4())
-            session_manager.set_task_id(request.session_id, task_id)
-            
+             raise HTTPException(status_code=400, detail="Configuration missing")
+
+        # Generate task ID
+        import uuid
+        task_id = str(uuid.uuid4())
+        session_manager.set_task_id(request.session_id, task_id)
+        
         active_tasks[request.session_id] = {
             'task_id': task_id,
-            'status': 'resuming'
+            'status': 'starting_review'
         }
         
-        # Determine if we should skip the current item causing the error
-        if request.skip_current:
-            # We assume the "current item" is the first empty cell in the target columns.
-            # We need to perform a quick fix on the file before restarting.
-            # This is synchronous but should be fast.
-            pass # TODO: Implement skip logic (requires knowing which file is current)
-            
-        background_tasks.add_task(process_survey_task, request.session_id, config, is_resume=True)
+        background_tasks.add_task(process_review_task, request.session_id, config, output_responses, output_codes)
         
         return ProcessResponse(
             task_id=task_id,
-            status='resumed',
-            message='Processing resumed'
+            status='started',
+            message='Review started'
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Error in resume_processing: {e}")
+        print(f"Error in start_review: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+async def process_review_task(session_id: str, config: Dict[str, Any], responses_path: str, codes_path: str):
+    """Background task for review"""
+    import asyncio
+    try:
+        session_manager.update_session_status(session_id, 'processing')
+        await ws_manager.emit_status(session_id, 'processing', 'Iniciando revisión automática...')
+        
+        loop = asyncio.get_running_loop()
+        
+        def review_progress_cb(progress: float):
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    ws_manager.emit_progress(session_id, progress, "Revisando asignaciones..."),
+                    loop
+                )
+            except Exception as e:
+                print(f"Error in review progress: {e}")
+
+        def review_status_cb(message: str):
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    ws_manager.emit_status(session_id, 'processing', message),
+                    loop
+                )
+            except Exception as e:
+                print(f"Error in review status: {e}")
+
+        columns_to_check = [col['name'] for col in config['columns']]
+        reviewer = SurveyReviewer(responses_path, codes_path, columns_to_check)
+        reviewer.set_progress_callback(review_progress_cb)
+        reviewer.set_status_callback(review_status_cb)
+        
+        review_results = await loop.run_in_executor(None, reviewer.run)
+        
+        # Update results
+        current_results = session_manager.get_session(session_id).get('results', {})
+        current_results['review_results'] = review_results
+        current_results['output_reviewed'] = review_results['output_file']
+        
+        session_manager.update_session_results(session_id, current_results)
+        session_manager.update_session_status(session_id, 'completed')
+        
+        await ws_manager.emit_complete(session_id, current_results)
+        await ws_manager.emit_status(session_id, 'review_completed', 'Revisión finalizada')
+        
+        if session_id in active_tasks:
+            del active_tasks[session_id]
+            
+    except Exception as e:
+        print(f"Error in review task: {e}")
+        session_manager.update_session_status(session_id, 'error')
+        await ws_manager.emit_error(session_id, str(e))
+        if session_id in active_tasks:
+            del active_tasks[session_id]
+
 
 async def process_survey_task(session_id: str, config: Dict[str, Any], is_resume: bool = False):
     """
@@ -372,50 +434,17 @@ async def process_survey_task(session_id: str, config: Dict[str, Any], is_resume
         session_manager.update_session_results(session_id, current_results)
         
         # Emit CODING COMPLETED event (New requirement)
-        await ws_manager.emit_status(session_id, 'coding_completed', 'Codificación inicial finalizada. Iniciando revisión...')
-        # We can send a custom message type if needed, but status update is easiest.
-        # Actually, let's send a specific message that frontend recognizes to show downloads.
-        # We can use the 'results' payload in emit_complete? No, that ends the process.
-        # We'll rely on the status string or send a specific progress update.
-        # Better: emit_status with a specific state key.
+        await ws_manager.emit_status(session_id, 'coding_completed', 'Codificación inicial finalizada.')
         
-        # 3. REVIEW PHASE
-        await ws_manager.emit_status(session_id, 'processing', 'Iniciando revisión automática...')
-        
-        def review_progress_cb(progress: float):
-            try:
-                asyncio.run_coroutine_threadsafe(
-                    ws_manager.emit_progress(session_id, progress, "Revisando asignaciones..."),
-                    loop
-                )
-            except Exception as e:
-                print(f"Error in review progress: {e}")
-
-        def review_status_cb(message: str):
-            try:
-                asyncio.run_coroutine_threadsafe(
-                    ws_manager.emit_status(session_id, 'processing', message),
-                    loop
-                )
-            except Exception as e:
-                print(f"Error in review status: {e}")
-
-        columns_to_check = [col['name'] for col in config['columns']]
-        reviewer = SurveyReviewer(final_responses_path, final_codes_path, columns_to_check)
-        reviewer.set_progress_callback(review_progress_cb)
-        reviewer.set_status_callback(review_status_cb)
-        
-        review_results = await loop.run_in_executor(None, reviewer.run)
-        
-        # 4. COMPLETION
-        current_results['review_results'] = review_results
-        current_results['output_reviewed'] = review_results['output_file']
-        
-        session_manager.update_session_results(session_id, current_results)
+        # Stop here - Review is now optional and triggered separately
         session_manager.update_session_status(session_id, 'completed')
         
+        # We emit complete here so frontend knows coding is done
         await ws_manager.emit_complete(session_id, current_results)
-        await ws_manager.emit_status(session_id, 'completed', 'Proceso finalizado exitosamente')
+        
+        # Remove from active tasks
+        if session_id in active_tasks:
+            del active_tasks[session_id]
         
     except Exception as e:
         print(f"Error in process_survey_task: {e}")
