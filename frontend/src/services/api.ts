@@ -27,14 +27,26 @@ const apiClient = axios.create({
 export const handleAPIError = (error: unknown): string => {
   if (axios.isAxiosError(error)) {
     const axiosError = error as AxiosError<APIError>;
-    if (axiosError.response?.data?.error) {
-      return axiosError.response.data.error;
+    const data = axiosError.response?.data;
+    if (data) {
+      if (typeof data.detail === 'string') {
+        return data.detail;
+      }
+      if (Array.isArray(data.detail)) {
+        return data.detail.map((e: any) => e.msg || (typeof e === 'object' ? JSON.stringify(e) : String(e))).join(', ');
+      }
+      if (typeof data.error === 'string') {
+        return data.error;
+      }
+      if (typeof data.message === 'string') {
+        return data.message;
+      }
     }
     if (axiosError.message) {
       return axiosError.message;
     }
   }
-  return 'An unexpected error occurred';
+  return 'Ocurrió un error inesperado';
 };
 
 /**

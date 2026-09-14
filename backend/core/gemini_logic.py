@@ -18,10 +18,13 @@ questions_dict: Dict[str, Set[Tuple[str, str]]] = {}
 
 
 def load_files(responses_path: str, codes_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Load Excel files for responses and codes"""
+    """Load Excel files for responses and codes with column sanitization"""
+    from core.logic import get_codes_sheet_name
     responses_df = pd.read_excel(responses_path)
-    codes_df = pd.read_excel(codes_path, sheet_name='Codificación')
-    codes_df.columns = codes_df.columns.str.strip()
+    responses_df.columns = [str(col).strip() if pd.notna(col) else f"Unnamed_{i}" for i, col in enumerate(responses_df.columns)]
+    sheet_name = get_codes_sheet_name(codes_path)
+    codes_df = pd.read_excel(codes_path, sheet_name=sheet_name)
+    codes_df.columns = [str(col).strip() if pd.notna(col) else f"Unnamed_{i}" for i, col in enumerate(codes_df.columns)]
     return responses_df, codes_df
 
 

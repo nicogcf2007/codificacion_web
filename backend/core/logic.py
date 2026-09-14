@@ -31,12 +31,50 @@ MODIFIED_CELLS: Set[Tuple[int, str]] = set()
 questions_dict: Dict[str, Set[Tuple[str, str]]] = {}
 
 
+def get_codes_sheet_name(codes_path: str) -> str:
+    """Find the codes sheet name flexibly, supporting accents, case variations or fallback"""
+    excel_file = pd.ExcelFile(codes_path)
+    sheet_names = excel_file.sheet_names
+
+    if 'Codificación' in sheet_names:
+        return 'Codificación'
+
+    def normalize_str(s: str) -> str:
+        s = str(s).strip().lower()
+        replacements = {'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u'}
+        for orig, repl in replacements.items():
+            s = s.replace(orig, repl)
+        return s
+
+    target_keywords = ['codificacion', 'codificaciones', 'codigos', 'categorias', 'codigo', 'categoria']
+    for sheet in sheet_names:
+        if normalize_str(sheet) in target_keywords:
+            return sheet
+
+    if len(sheet_names) == 1:
+        return sheet_names[0]
+
+    for sheet in sheet_names:
+        norm = normalize_str(sheet)
+        if 'codif' in norm or 'codig' in norm:
+            return sheet
+
+    raise ValueError(
+        f"No se encontró la hoja 'Codificación' en el archivo de códigos. "
+        f"Hojas encontradas: {sheet_names}. Por favor asegúrate de que la hoja de códigos se llame 'Codificación'."
+    )
+
+
 def load_files(responses_path: str, codes_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Load Excel files for responses and codes"""
+    """Load Excel files for responses and codes with column sanitization"""
     try:
         responses_df = pd.read_excel(responses_path)
-        codes_df = pd.read_excel(codes_path, sheet_name='Codificación')
-        codes_df.columns = codes_df.columns.str.strip()
+        # Ensure all columns in responses_df are strings and stripped
+        responses_df.columns = [str(col).strip() if pd.notna(col) else f"Unnamed_{i}" for i, col in enumerate(responses_df.columns)]
+        
+        sheet_name = get_codes_sheet_name(codes_path)
+        codes_df = pd.read_excel(codes_path, sheet_name=sheet_name)
+        codes_df.columns = [str(col).strip() if pd.notna(col) else f"Unnamed_{i}" for i, col in enumerate(codes_df.columns)]
         return responses_df, codes_df
     except ImportError as e:
         if "openpyxl" in str(e):

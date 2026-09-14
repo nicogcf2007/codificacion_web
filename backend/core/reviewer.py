@@ -120,9 +120,13 @@ class SurveyReviewer:
         self.stop_flag = True
 
     def run(self) -> Dict[str, Any]:
+        from core.logic import get_codes_sheet_name
         original_responses_df = pd.read_excel(self.responses_path)
+        original_responses_df.columns = [str(col).strip() if pd.notna(col) else f"Unnamed_{i}" for i, col in enumerate(original_responses_df.columns)]
         modified_responses_df = original_responses_df.copy()
-        codes_df = pd.read_excel(self.codes_path, sheet_name="Codificación")
+        sheet_name = get_codes_sheet_name(self.codes_path)
+        codes_df = pd.read_excel(self.codes_path, sheet_name=sheet_name)
+        codes_df.columns = [str(col).strip() if pd.notna(col) else f"Unnamed_{i}" for i, col in enumerate(codes_df.columns)]
 
         total_rows = 0
         for response_column in self.columns_to_check:

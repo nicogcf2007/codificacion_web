@@ -56,7 +56,7 @@ class SurveyProcessor:
         Returns:
             List of column names
         """
-        return responses_df.columns.tolist()
+        return [str(col).strip() for col in responses_df.columns if pd.notna(col) and str(col).strip() != '']
     
     def process(self, responses_df: pd.DataFrame, codes_df: pd.DataFrame,
                 config: Dict, save_callback: Optional[Callable[[pd.DataFrame, pd.DataFrame], None]] = None,

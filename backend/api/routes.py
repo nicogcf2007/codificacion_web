@@ -180,11 +180,11 @@ async def upload_files(
         responses_df, codes_df = processor.load_files(responses_path, codes_path)
         
         # Get available columns
-        columns = processor.get_columns(responses_df)
+        columns = [str(col).strip() for col in processor.get_columns(responses_df) if pd.notna(col) and str(col).strip() != '']
         
         # Get available questions from codes file
         if 'Nombre de la Pregunta' in codes_df.columns:
-            questions = codes_df['Nombre de la Pregunta'].dropna().unique().tolist()
+            questions = [str(q).strip() for q in codes_df['Nombre de la Pregunta'].dropna().unique().tolist() if pd.notna(q) and str(q).strip() != '']
         else:
             questions = []
         
@@ -199,12 +199,16 @@ async def upload_files(
         )
         
     except pd.errors.EmptyDataError:
-        raise HTTPException(status_code=400, detail="One or both files are empty")
+        raise HTTPException(status_code=400, detail="Uno o ambos archivos están vacíos")
     except pd.errors.ParserError as e:
-        raise HTTPException(status_code=400, detail=f"Error parsing Excel file: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Error al analizar archivo Excel: {str(e)}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"Error in upload endpoint: {e}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error al procesar archivos: {str(e)}")
 
 
 

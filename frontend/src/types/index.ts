@@ -129,7 +129,9 @@ export interface AppState {
 
 // Error response from API
 export interface APIError {
-  error: string;
+  error?: string;
+  detail?: string | any[];
   details?: Record<string, any>;
+  message?: string;
   path?: string;
 }
