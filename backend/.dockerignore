@@ -1,0 +1,15 @@
+.git
+.gitignore
+.env
+.env.*
+__pycache__/
+*.py[cod]
+venv/
+temp_uploads/
+*.xlsx
+*.xls
+*.log
+benchmark_*.py
+experiment_*.py
+prepare_blind_eval.py
+code_santa_marta_base.py

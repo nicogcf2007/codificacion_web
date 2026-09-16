@@ -3,27 +3,43 @@ services:
     build:
       context: ./backend
     environment:
-      - SESSION_TIMEOUT_HOURS=24
-      - MAX_FILE_SIZE_MB=50
-      - CORS_ORIGINS=*
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY must be set in Dokploy}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      TEMP_DIR: /app/temp_uploads
+      SESSION_TIMEOUT_HOURS: ${SESSION_TIMEOUT_HOURS:-24}
+      MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-50}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
+    expose:
+      - "8020"
     networks:
       - internal
       - dokploy-network
     restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8020/health', timeout=5)
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
 
   frontend:
     build:
       context: ./frontend
-    ports:
-      - "5170:80"
+    expose:
+      - "80"
     networks:
       - internal
       - dokploy-network
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 networks:
   internal:

@@ -192,6 +192,17 @@ async def startup_event():
     asyncio.create_task(run_periodic_cleanup())
 
 
+# Health endpoint must be registered before the SPA catch-all route.
+@api_app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "active_sessions": session_manager.get_session_count(),
+        "active_connections": ws_manager.get_connection_count()
+    }
+
+
 # Serve static files from frontend build (for production)
 frontend_dist = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
 
@@ -223,16 +234,6 @@ async def shutdown_event():
     print("=" * 60)
     print("Survey Coding API - Shutting down")
     print("=" * 60)
-
-
-@api_app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "active_sessions": session_manager.get_session_count(),
-        "active_connections": ws_manager.get_connection_count()
-    }
 
 
 # Export the socket_app for uvicorn
