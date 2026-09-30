@@ -106,6 +106,10 @@ class SurveyProcessor:
             if self.status_callback:
                 self.status_callback(f"Codificación manual completada. {len(modified)} celdas pre-asignadas.")
         
+        coding_mode = config.get('coding_mode', 'hybrid_luna')
+        enable_clustering = config.get('enable_clustering', True)
+        cluster_threshold = float(config.get('cluster_threshold', 80.0))
+        
         # Process responses with callbacks
         processed_responses_df, updated_codes_df = logic.process_responses(
             responses_df=responses_df,
@@ -117,7 +121,10 @@ class SurveyProcessor:
             progress_callback=self.progress_callback,
             status_callback=self.status_callback,
             save_callback=save_callback,
-            skip_first_uncoded=skip_first_uncoded
+            skip_first_uncoded=skip_first_uncoded,
+            coding_mode=coding_mode,
+            enable_clustering=enable_clustering,
+            cluster_threshold=cluster_threshold
         )
         
         return processed_responses_df, updated_codes_df

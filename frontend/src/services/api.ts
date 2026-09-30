@@ -8,7 +8,11 @@ import type {
   ProgressResponse,
   StopResponse,
   ProcessingConfig,
-  APIError
+  APIError,
+  Project,
+  Catalog,
+  Job,
+  ReviewItem
 } from '../types';
 
 // Get API URL from environment or use default (relative in prod, localhost in dev)
@@ -54,11 +58,13 @@ export const handleAPIError = (error: unknown): string => {
  */
 export const uploadFiles = async (
   responsesFile: File,
-  codesFile: File
+  codesFile: File,
+  projectId?: string
 ): Promise<UploadResponse> => {
   const formData = new FormData();
   formData.append('responses', responsesFile);
   formData.append('codes', codesFile);
+  if (projectId) formData.append('project_id', projectId);
 
   const response = await apiClient.post<UploadResponse>('/api/upload', formData, {
     headers: {
@@ -167,4 +173,57 @@ export const getTempFileDownloadUrl = (file_path: string): string => {
   // Encode each path segment separately so slashes remain intact
   const encodedPath = file_path.split('/').map(encodeURIComponent).join('/');
   return `${API_URL}/api/temp-files/${encodedPath}`;
+};
+
+export const listProjects = async (): Promise<Project[]> => {
+  const response = await apiClient.get<{ projects: Project[] }>('/api/projects');
+  return response.data.projects;
+};
+
+export const createProject = async (name: string, description: string): Promise<Project> => {
+  const response = await apiClient.post<Project>('/api/projects', { name, description });
+  return response.data;
+};
+
+export const listCatalogs = async (projectId: string): Promise<Catalog[]> => {
+  const response = await apiClient.get<{ catalogs: Catalog[] }>(`/api/projects/${projectId}/catalogs`);
+  return response.data.catalogs;
+};
+
+export const createCatalog = async (
+  projectId: string,
+  payload: Pick<Catalog, 'name' | 'entries' | 'multi_label' | 'max_labels'>
+): Promise<Catalog> => {
+  const response = await apiClient.post<Catalog>(`/api/projects/${projectId}/catalogs`, payload);
+  return response.data;
+};
+
+export const updateCatalog = async (
+  catalogId: string,
+  payload: Pick<Catalog, 'name' | 'entries' | 'multi_label' | 'max_labels'>
+): Promise<Catalog> => {
+  const response = await apiClient.patch<Catalog>(`/api/catalogs/${catalogId}`, payload);
+  return response.data;
+};
+
+export const listJobs = async (projectId?: string): Promise<Job[]> => {
+  const response = await apiClient.get<{ jobs: Job[] }>('/api/jobs', {
+    params: projectId ? { project_id: projectId } : undefined,
+  });
+  return response.data.jobs;
+};
+
+export const getJobReviewItems = async (jobId: string, status?: string): Promise<ReviewItem[]> => {
+  const response = await apiClient.get<{ items: ReviewItem[] }>(`/api/jobs/${jobId}/review-items`, {
+    params: status ? { status } : undefined,
+  });
+  return response.data.items;
+};
+
+export const updateReviewItem = async (
+  itemId: string,
+  payload: Pick<ReviewItem, 'status' | 'final_codes'> & { reviewer?: string; comment?: string }
+): Promise<ReviewItem & { file_updated: boolean }> => {
+  const response = await apiClient.patch<ReviewItem & { file_updated: boolean }>(`/api/review-items/${itemId}`, payload);
+  return response.data;
 };

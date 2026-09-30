@@ -9,8 +9,12 @@ services:
       SESSION_TIMEOUT_HOURS: ${SESSION_TIMEOUT_HOURS:-24}
       MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-50}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
+      LOCAL_DB_PATH: /app/data/codificacion.sqlite3
     expose:
       - "8020"
+    volumes:
+      - codificacion_data:/app/data
+      - codificacion_temp:/app/temp_uploads
     networks:
       - internal
       - dokploy-network
@@ -46,3 +50,7 @@ networks:
     driver: bridge
   dokploy-network:
     external: true
+
+volumes:
+  codificacion_data:
+  codificacion_temp:

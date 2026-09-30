@@ -8,9 +8,10 @@ interface ResultsProps {
   results: ProcessingResults;
   onReset: () => void;
   onStartReview: () => void;
+  onOpenHumanReview?: () => void;
 }
 
-const Results: React.FC<ResultsProps> = ({ sessionId, results, onReset, onStartReview }) => {
+const Results: React.FC<ResultsProps> = ({ sessionId, results, onReset, onStartReview, onOpenHumanReview }) => {
   const [cleaningUp, setCleaningUp] = useState(false);
   const [startingReview, setStartingReview] = useState(false);
 
@@ -394,6 +395,14 @@ const Results: React.FC<ResultsProps> = ({ sessionId, results, onReset, onStartR
         {/* Actions */}
         <div className="card">
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            {onOpenHumanReview && (
+              <button
+                onClick={onOpenHumanReview}
+                className="px-8 py-4 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg shadow-lg transform transition hover:scale-105"
+              >
+                Abrir revisión humana
+              </button>
+            )}
             {/* If we haven't done review yet, we can restart processing or finish */}
             <button
               onClick={handleFinish}

@@ -3,7 +3,7 @@
  */
 
 // Application state types
-export type AppStep = 'home' | 'upload' | 'upload-review' | 'configure' | 'manual-coding' | 'processing' | 'results' | 'temp-files';
+export type AppStep = 'home' | 'workspace' | 'upload' | 'upload-review' | 'configure' | 'manual-coding' | 'processing' | 'results' | 'review-queue' | 'temp-files';
 
 export type ProcessingStatus = 'idle' | 'processing' | 'completed' | 'error' | 'stopped' | 'coding_completed';
 
@@ -21,15 +21,6 @@ export interface ManualCodingState {
     mappings: Record<string, Record<string, string>>; 
 }
 
-// ... existing types ...
-
-export interface ProcessingConfig {
-  columns: ColumnConfig[];
-  question_column: string;
-  max_new_labels: number;
-  start_code: number;
-  manual_mappings?: Record<string, Record<string, string>>;
-}
 export interface UploadedFiles {
   responses: File | null;
   codes: File | null;
@@ -47,6 +38,7 @@ export interface ProcessResponse {
   task_id: string;
   status: string;
   message: string;
+  job_id?: string | null;
 }
 
 export interface ProgressResponse {
@@ -61,7 +53,9 @@ export interface StopResponse {
   message: string;
 }
 
-// Configuration types
+// Coding modes supported
+export type CodingMode = 'hybrid_luna' | 'hybrid_sol' | 'jev_express' | 'luna_direct' | 'sol_direct';
+
 export interface ColumnConfig {
   name: string;
   multiLabel: boolean;
@@ -76,9 +70,13 @@ export interface ProcessingConfig {
   max_new_labels: number;
   start_code: number;
   manual_mappings?: Record<string, Record<string, string>>;
+  project_id?: string;
+  catalog_id?: string;
+  job_name?: string;
+  coding_mode?: CodingMode;
+  enable_clustering?: boolean;
+  cluster_threshold?: number;
 }
-
-// Session data
 export interface SessionData {
   session_id: string | null;
   task_id: string | null;
@@ -135,3 +133,5 @@ export interface APIError {
   message?: string;
   path?: string;
 }
+
+export * from './product';

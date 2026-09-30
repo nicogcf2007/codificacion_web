@@ -19,6 +19,7 @@ if current_dir not in sys.path:
 from core.session import SessionManager
 from core.websocket import WebSocketManager
 from core.middleware import LoggingMiddleware, FileSizeMiddleware
+from core.product_store import ProductStore
 from core.errors import (
     APIError,
     api_error_handler,
@@ -38,6 +39,7 @@ TEMP_DIR = os.getenv('TEMP_DIR', os.path.join(BASE_DIR, 'temp_uploads'))
 SESSION_TIMEOUT_HOURS = int(os.getenv('SESSION_TIMEOUT_HOURS', '24'))
 MAX_FILE_SIZE_MB = int(os.getenv('MAX_FILE_SIZE_MB', '50'))
 CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:5173,http://localhost:3000').split(',')
+PRODUCT_DB_PATH = os.getenv('LOCAL_DB_PATH', os.path.join(BASE_DIR, 'data', 'codificacion.sqlite3'))
 
 # Create Socket.IO server
 sio = socketio.AsyncServer(
@@ -81,9 +83,10 @@ session_manager = SessionManager(
 )
 
 ws_manager = WebSocketManager(sio)
+product_store = ProductStore(PRODUCT_DB_PATH)
 
 # Set managers in routes module
-routes.set_managers(session_manager, ws_manager)
+routes.set_managers(session_manager, ws_manager, product_store)
 
 # Register error handlers
 api_app.add_exception_handler(APIError, api_error_handler)
@@ -178,6 +181,7 @@ async def startup_event():
     print(f"Session timeout: {SESSION_TIMEOUT_HOURS} hours")
     print(f"Max file size: {MAX_FILE_SIZE_MB} MB")
     print(f"CORS origins: {CORS_ORIGINS}")
+    print(f"Product database: {PRODUCT_DB_PATH}")
     print("=" * 60)
     
     # Cleanup old sessions on startup

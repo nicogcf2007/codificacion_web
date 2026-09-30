@@ -1,17 +1,19 @@
 """
 API Routes - REST endpoints for the survey coding application
 """
-from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Form
 from fastapi.responses import FileResponse
 from typing import List, Dict, Any, Optional
 import os
+import json
 import pandas as pd
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from core.session import SessionManager
 from core.processor import SurveyProcessor
 from core.reviewer import SurveyReviewer
 from core.websocket import WebSocketManager
+from core.product_store import ProductStore, validate_code_selection
 
 # Create router
 router = APIRouter(prefix="/api", tags=["api"])
@@ -19,14 +21,26 @@ router = APIRouter(prefix="/api", tags=["api"])
 # Global instances (will be set by main.py)
 session_manager: SessionManager = None
 ws_manager: WebSocketManager = None
+product_store: Optional[ProductStore] = None
 active_tasks: Dict[str, Any] = {}
 
 
-def set_managers(session_mgr: SessionManager, websocket_mgr: WebSocketManager):
-    """Set global manager instances"""
-    global session_manager, ws_manager
+def set_managers(
+    session_mgr: SessionManager,
+    websocket_mgr: WebSocketManager,
+    product_store_instance: Optional[ProductStore] = None,
+):
+    """Set global managers"""
+    global session_manager, ws_manager, product_store
     session_manager = session_mgr
     ws_manager = websocket_mgr
+    product_store = product_store_instance
+
+
+def _require_product_store() -> ProductStore:
+    if product_store is None:
+        raise HTTPException(status_code=503, detail="Product store is not configured")
+    return product_store
 
 
 # Request/Response Models
@@ -50,8 +64,14 @@ class ProcessRequest(BaseModel):
     question_column: str = "Nombre de la Pregunta"
     max_new_labels: int = 0 # Deprecated, now per column
     start_code: int = 501
-    manual_mappings: Dict[str, Dict[str, str]] = {} # New field for manual codes
+    manual_mappings: Dict[str, Dict[str, str]] = Field(default_factory=dict) # New field for manual codes
     skip_crash_row: bool = False # Resume option: skip the next uncoded row (assumed to be crash cause)
+    project_id: Optional[str] = None
+    catalog_id: Optional[str] = None
+    job_name: str = ""
+    coding_mode: str = "hybrid_luna" # Options: hybrid_luna, hybrid_sol, jev_express, luna_direct, sol_direct, luna56_direct
+    enable_clustering: bool = True # Fuzzy prototype clustering (>=80%)
+    cluster_threshold: float = 80.0 # Similarity threshold percentage
 
 class AnalyzeRequest(BaseModel):
     session_id: str
@@ -68,6 +88,7 @@ class ProcessResponse(BaseModel):
     task_id: str
     status: str
     message: str
+    job_id: Optional[str] = None
 
 
 class ProgressResponse(BaseModel):
@@ -80,6 +101,286 @@ class ProgressResponse(BaseModel):
 class StopResponse(BaseModel):
     status: str
     message: str
+
+
+class ProjectRequest(BaseModel):
+    name: str
+    description: str = ""
+
+
+class CatalogRequest(BaseModel):
+    name: str
+    entries: List[Dict[str, Any]]
+    multi_label: bool = False
+    max_labels: int = 1
+
+
+class ReviewItemUpdateRequest(BaseModel):
+    status: str
+    final_codes: List[str] = Field(default_factory=list)
+    reviewer: str = ""
+    comment: str = ""
+
+
+def _parse_code_cell(value: Any) -> list[str]:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return []
+    text = str(value).strip().replace("[", "").replace("]", "").replace("'", "")
+    return list(dict.fromkeys(code.strip() for code in text.split(";") if code.strip()))
+
+
+def _ensure_review_items(session_id: str, job_id: Optional[str] = None) -> int:
+    """Materialize conservative human-review candidates from a completed file."""
+    store = _require_product_store()
+    job = store.get_job(job_id) if job_id else store.get_job_by_session(session_id)
+    session = session_manager.get_session(session_id)
+    if not job or not session:
+        return 0
+    output_path = session.get("results", {}).get("output_responses")
+    if not output_path or not os.path.exists(output_path):
+        return 0
+    try:
+        responses_df = pd.read_excel(output_path, dtype=object)
+    except Exception as exc:
+        print(f"Could not create review queue for {session_id}: {exc}")
+        return 0
+
+    config_columns = session.get("config", {}).get("columns", [])
+    existing = {
+        (item["source_row"], item["source_column"])
+        for item in store.list_review_items(job["id"])
+    }
+    created = 0
+    for column_config in config_columns:
+        response_column = str(column_config.get("name", "")).strip()
+        code_column = "C" + response_column
+        if response_column not in responses_df.columns or code_column not in responses_df.columns:
+            continue
+        for row_index, row in responses_df.iterrows():
+            response = row.get(response_column)
+            if response is None or (isinstance(response, float) and pd.isna(response)):
+                continue
+            response_text = str(response).strip()
+            if not response_text:
+                continue
+            suggested_codes = _parse_code_cell(row.get(code_column))
+            if suggested_codes and "77" not in suggested_codes:
+                continue
+            source_row = int(row_index) + 2
+            key = (source_row, code_column)
+            if key in existing:
+                continue
+            reason = "Respuesta sin código asignado" if not suggested_codes else "Incluye 77 y requiere validación humana"
+            store.create_review_item(
+                job["id"],
+                source_row=source_row,
+                source_column=code_column,
+                question=response_column,
+                response=response_text,
+                suggested_codes=suggested_codes,
+                reason=reason,
+            )
+            existing.add(key)
+            created += 1
+    return created
+
+
+def _apply_review_item_to_output(item: dict[str, Any], final_codes: List[str]) -> bool:
+    store = _require_product_store()
+    job = store.get_job(item["job_id"])
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    session = session_manager.get_session(job["session_id"])
+    if not session:
+        return False
+    output_path = session.get("results", {}).get("output_responses")
+    if not output_path or not os.path.exists(output_path):
+        return False
+    try:
+        dataframe = pd.read_excel(output_path, dtype=object)
+        dataframe_row = int(item["source_row"]) - 2
+        if dataframe_row < 0 or dataframe_row >= len(dataframe) or item["source_column"] not in dataframe.columns:
+            raise HTTPException(status_code=409, detail="Review item no longer matches the output file")
+        dataframe.at[dataframe_row, item["source_column"]] = ";".join(final_codes)
+        dataframe.to_excel(output_path, index=False)
+        reread = pd.read_excel(output_path, dtype=object)
+        stored_value = reread.at[dataframe_row, item["source_column"]]
+        stored_text = "" if pd.isna(stored_value) else str(stored_value)
+        if stored_text != ";".join(final_codes):
+            raise HTTPException(status_code=500, detail="Could not verify the reviewed value on disk")
+        return True
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not update output file: {exc}") from exc
+
+
+@router.post("/projects", status_code=201)
+async def create_project(request: ProjectRequest):
+    try:
+        return _require_product_store().create_project(request.name, request.description)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/projects")
+async def list_projects():
+    return {"projects": _require_product_store().list_projects()}
+
+
+@router.get("/projects/{project_id}")
+async def get_project(project_id: str):
+    project = _require_product_store().get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    project["catalogs"] = _require_product_store().list_catalogs(project_id)
+    return project
+
+
+@router.patch("/projects/{project_id}")
+async def update_project(project_id: str, request: ProjectRequest):
+    try:
+        return _require_product_store().update_project(
+            project_id, name=request.name, description=request.description
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/projects/{project_id}")
+async def delete_project(project_id: str):
+    try:
+        _require_product_store().delete_project(project_id)
+        return {"status": "deleted", "project_id": project_id}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+
+
+@router.post("/projects/{project_id}/catalogs", status_code=201)
+async def create_catalog(project_id: str, request: CatalogRequest):
+    try:
+        return _require_product_store().create_catalog(
+            project_id,
+            request.name,
+            request.entries,
+            multi_label=request.multi_label,
+            max_labels=request.max_labels,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    except ValueError as exc:
+        detail = str(exc)
+        try:
+            detail = json.loads(detail)
+        except json.JSONDecodeError:
+            pass
+        raise HTTPException(status_code=400, detail=detail) from exc
+
+
+@router.get("/projects/{project_id}/catalogs")
+async def list_catalogs(project_id: str):
+    store = _require_product_store()
+    if not store.get_project(project_id):
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"catalogs": store.list_catalogs(project_id)}
+
+
+@router.get("/catalogs/{catalog_id}")
+async def get_catalog(catalog_id: str):
+    catalog = _require_product_store().get_catalog(catalog_id)
+    if not catalog:
+        raise HTTPException(status_code=404, detail="Catalog not found")
+    return catalog
+
+
+@router.patch("/catalogs/{catalog_id}")
+async def update_catalog(catalog_id: str, request: CatalogRequest):
+    try:
+        return _require_product_store().update_catalog(
+            catalog_id,
+            name=request.name,
+            entries=request.entries,
+            multi_label=request.multi_label,
+            max_labels=request.max_labels,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Catalog not found") from exc
+    except ValueError as exc:
+        detail = str(exc)
+        try:
+            detail = json.loads(detail)
+        except json.JSONDecodeError:
+            pass
+        raise HTTPException(status_code=400, detail=detail) from exc
+
+
+@router.get("/jobs")
+async def list_jobs(project_id: Optional[str] = None):
+    return {"jobs": _require_product_store().list_jobs(project_id)}
+
+
+@router.get("/jobs/{job_id}")
+async def get_job(job_id: str):
+    job = _require_product_store().get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@router.get("/jobs/{job_id}/review-items")
+async def list_job_review_items(job_id: str, status: Optional[str] = None):
+    store = _require_product_store()
+    if not store.get_job(job_id):
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"items": store.list_review_items(job_id, status=status)}
+
+
+@router.post("/sessions/{session_id}/review-items/sync")
+async def sync_session_review_items(session_id: str):
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    created = _ensure_review_items(session_id)
+    job = _require_product_store().get_job_by_session(session_id)
+    return {"created": created, "job_id": job["id"] if job else None}
+
+
+@router.patch("/review-items/{item_id}")
+async def update_review_item(item_id: str, request: ReviewItemUpdateRequest):
+    store = _require_product_store()
+    item = store.get_review_item(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Review item not found")
+    final_codes = [str(code).strip() for code in request.final_codes if str(code).strip()]
+    job = store.get_job(item["job_id"])
+    catalog_id = (job or {}).get("config", {}).get("catalog_id")
+    if catalog_id:
+        catalog = store.get_catalog(catalog_id)
+        if catalog:
+            selection_errors = validate_code_selection(final_codes, catalog)
+            if selection_errors:
+                raise HTTPException(status_code=400, detail=selection_errors)
+    file_updated = _apply_review_item_to_output(item, final_codes)
+    try:
+        updated = store.update_review_item(
+            item_id,
+            status=request.status,
+            final_codes=final_codes,
+            reviewer=request.reviewer,
+            comment=request.comment,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {**updated, "file_updated": file_updated}
+
+
+@router.get("/jobs/{job_id}/audit")
+async def list_job_audit(job_id: str):
+    store = _require_product_store()
+    if not store.get_job(job_id):
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"events": store.list_audit_events(job_id=job_id)}
 
 
 
@@ -132,7 +433,8 @@ async def analyze_frequencies(request: AnalyzeRequest):
 @router.post("/upload", response_model=UploadResponse)
 async def upload_files(
     responses: UploadFile = File(..., description="Responses Excel file"),
-    codes: UploadFile = File(..., description="Codes Excel file")
+    codes: UploadFile = File(..., description="Codes Excel file"),
+    project_id: Optional[str] = Form(None),
 ):
     """
     Upload responses and codes Excel files
@@ -160,8 +462,14 @@ async def upload_files(
                 detail=f"Invalid codes file type. Must be {', '.join(valid_extensions)}"
             )
         
+        # Validate project before creating any session/files
+        if project_id and product_store is not None and not product_store.get_project(project_id):
+            raise HTTPException(status_code=404, detail="Project not found")
+
         # Create session
         session_id = session_manager.create_session()
+        if project_id:
+            session_manager.set_metadata(session_id, 'project_id', project_id)
         
         # Read file contents
         responses_content = await responses.read()
@@ -336,6 +644,7 @@ async def process_survey_task(session_id: str, config: Dict[str, Any], is_resume
     from datetime import datetime
     
     try:
+        job_id = session_manager.get_metadata(session_id, 'job_id')
         # Determine paths (might be different if resuming)
         # Actually, we always read from 'responses' and 'codes' original uploads
         # BUT if we are resuming, we should ideally read from the INTERMEDIATE file if it exists.
@@ -381,12 +690,33 @@ async def process_survey_task(session_id: str, config: Dict[str, Any], is_resume
             input_codes_path = current_progress_codes
             
         session_manager.update_session_status(session_id, 'processing')
+        if product_store is not None and job_id:
+            product_store.update_job(
+                job_id,
+                status='RUNNING',
+                started_at=datetime.now().isoformat(),
+            )
         await ws_manager.emit_status(session_id, 'processing', 'Reanudando procesamiento...' if is_resume else 'Iniciando procesamiento...')
 
         processor = SurveyProcessor(session_id)
         
         # Callbacks
-        progress_cb, status_cb = SurveyProcessor.create_websocket_callbacks(ws_manager, session_id)
+        websocket_progress_cb, websocket_status_cb = SurveyProcessor.create_websocket_callbacks(ws_manager, session_id)
+
+        def progress_cb(progress: float):
+            websocket_progress_cb(progress)
+            if product_store is not None and job_id:
+                job = product_store.get_job(job_id)
+                total_records = int(job.get('total_records', 0)) if job else 0
+                product_store.update_job(
+                    job_id,
+                    progress=progress,
+                    processed_records=int(progress * total_records) if total_records else 0,
+                )
+
+        def status_cb(message: str):
+            websocket_status_cb(message)
+
         processor.set_progress_callback(progress_cb)
         processor.set_status_callback(status_cb)
         
@@ -395,6 +725,8 @@ async def process_survey_task(session_id: str, config: Dict[str, Any], is_resume
         responses_df, codes_df = await loop.run_in_executor(
             None, processor.load_files, input_responses_path, input_codes_path
         )
+        if product_store is not None and job_id:
+            product_store.update_job(job_id, total_records=len(responses_df))
         
         # Define Save Callback
         def save_intermediate(r_df, c_df):
@@ -448,6 +780,18 @@ async def process_survey_task(session_id: str, config: Dict[str, Any], is_resume
             'total_records': len(processed_responses_df)
         }
         session_manager.update_session_results(session_id, current_results)
+
+        pending_review = 0
+        if product_store is not None and job_id:
+            pending_review = _ensure_review_items(session_id, job_id)
+            product_store.update_job(
+                job_id,
+                status='REVIEW_REQUIRED' if pending_review else 'COMPLETED',
+                progress=1.0,
+                processed_records=len(processed_responses_df),
+                total_records=len(processed_responses_df),
+                completed_at=datetime.now().isoformat(),
+            )
         
         # Emit CODING COMPLETED event (New requirement)
         await ws_manager.emit_status(session_id, 'coding_completed', 'Codificación inicial finalizada.')
@@ -464,6 +808,11 @@ async def process_survey_task(session_id: str, config: Dict[str, Any], is_resume
         
     except Exception as e:
         print(f"Error in process_survey_task: {e}")
+        if product_store is not None and job_id:
+            try:
+                product_store.update_job(job_id, status='FAILED', error=str(e))
+            except Exception as store_error:
+                print(f"Error updating product job failure: {store_error}")
         session_manager.update_session_status(session_id, 'error')
         await ws_manager.emit_error(session_id, str(e))
 
@@ -558,16 +907,36 @@ async def start_processing(
         
         # Prepare config
         # Convert Pydantic models to dicts for internal processing
-        columns_config = [col.dict() for col in request.columns]
-        
+        columns_config = [col.model_dump() for col in request.columns]
+        project_id = request.project_id or session.get('project_id')
+
         config = {
             'columns': columns_config,
             'question_column': request.question_column,
             'max_new_labels': request.max_new_labels,
             'start_code': request.start_code,
             'manual_mappings': request.manual_mappings,
-            'skip_crash_row': request.skip_crash_row # Pass this along
+            'skip_crash_row': request.skip_crash_row, # Pass this along
+            'project_id': project_id,
+            'catalog_id': request.catalog_id,
+            'job_name': request.job_name,
+            'coding_mode': request.coding_mode,
+            'enable_clustering': request.enable_clustering,
+            'cluster_threshold': request.cluster_threshold,
         }
+
+        store = product_store
+        if store is not None:
+            if project_id and not store.get_project(project_id):
+                raise HTTPException(status_code=404, detail="Project not found")
+            if request.catalog_id:
+                catalog = store.get_catalog(request.catalog_id)
+                if not catalog:
+                    raise HTTPException(status_code=404, detail="Catalog not found")
+                if project_id and catalog['project_id'] != project_id:
+                    raise HTTPException(status_code=400, detail="Catalog does not belong to project")
+                project_id = catalog['project_id']
+                config['project_id'] = project_id
         
         # Save config to session
         session_manager.update_session_config(request.session_id, config)
@@ -576,6 +945,19 @@ async def start_processing(
         import uuid
         task_id = str(uuid.uuid4())
         session_manager.set_task_id(request.session_id, task_id)
+
+        job_id = None
+        if product_store is not None:
+            from datetime import datetime
+            job = product_store.create_job(
+                project_id,
+                request.session_id,
+                request.job_name or f"Codificación {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                config,
+                status='QUEUED',
+            )
+            job_id = job['id']
+            session_manager.set_metadata(request.session_id, 'job_id', job_id)
         
         # Store in active tasks
         active_tasks[request.session_id] = {
@@ -589,7 +971,8 @@ async def start_processing(
         return ProcessResponse(
             task_id=task_id,
             status='started',
-            message='Processing started'
+            message='Processing started',
+            job_id=job_id,
         )
         
     except HTTPException:

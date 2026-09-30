@@ -23,12 +23,23 @@ except ImportError:
          openai_api_key_Codifiacion = None
 
 # Configure OpenAI API
-client = OpenAI(api_key=openai_api_key_Codifiacion)
+client = OpenAI(api_key=openai_api_key_Codifiacion) if openai_api_key_Codifiacion else None
+
+# Import New AI Engine & Response Cache
+try:
+    from .ai_engine import global_ai_engine
+    from .response_cache import global_cache
+    from .clustering import cluster_survey_responses, is_empty_or_symbol
+except ImportError:
+    from core.ai_engine import global_ai_engine
+    from core.response_cache import global_cache
+    from core.clustering import cluster_survey_responses, is_empty_or_symbol
 
 # Global variables
 PROCESS_STOPPED = False
 MODIFIED_CELLS: Set[Tuple[int, str]] = set()
 questions_dict: Dict[str, Set[Tuple[str, str]]] = {}
+REVIEW_CANDIDATES: List[Dict[str, Any]] = []
 
 
 def get_codes_sheet_name(codes_path: str) -> str:
@@ -92,8 +103,9 @@ def select_columns(codes_df: pd.DataFrame, question_column: str) -> pd.DataFrame
 
 
 def request_openai(messages: List[Dict[str, str]], max_retries: int = 5, 
-                   stop_requested_check: Optional[Callable] = None) -> Optional[Any]:
-    """Make request to OpenAI API with retry logic"""
+                   stop_requested_check: Optional[Callable] = None,
+                   model: str = "gpt-6-luna") -> Optional[Any]:
+    """Make request to OpenAI API with retry logic using modern reasoning models"""
     global PROCESS_STOPPED
     
     if not openai_api_key_Codifiacion:
@@ -106,30 +118,27 @@ def request_openai(messages: List[Dict[str, str]], max_retries: int = 5,
             return None
         
         try:
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=messages,
-                max_completion_tokens=400
-            )
+            call_kwargs = {
+                "model": model,
+                "messages": messages,
+                "max_completion_tokens": 400
+            }
+            if any(k in model.lower() for k in ["luna", "sol", "o1", "o3"]):
+                call_kwargs["reasoning_effort"] = "low"
+
+            response = client.chat.completions.create(**call_kwargs)
             
-            print(f"\n[OpenAI Logic] Solicitud exitosa (Intento {attempt + 1})")
-            print("="*50)
-            try:
-                print(f"[OpenAI Logic] Content: {response.choices[0].message.content}")
-            except:
-                pass
-            print("="*50)
-            
+            print(f"\n[OpenAI Logic - {model}] Solicitud exitosa (Intento {attempt + 1})")
             return response
         except Exception as e:
-            print(f"Error en la solicitud a OpenAI: {e}. Intento {attempt + 1} de {max_retries}.")
+            print(f"Error en la solicitud a OpenAI ({model}): {e}. Intento {attempt + 1} de {max_retries}.")
             
             if stop_requested_check and stop_requested_check():
                 print("Solicitud a OpenAI cancelada durante reintento")
                 return None
                 
             if attempt < max_retries - 1:
-                time.sleep(10)
+                time.sleep(3)
             else:
                 # Don't raise, return None to handle gracefully
                 print(f"OpenAI request failed after {max_retries} retries")
@@ -322,101 +331,99 @@ def save_new_label(codes_df: pd.DataFrame, question: str, label: str, new_code: 
 def process_response(question: str, response: str, available_labels: List[str],
                     available_codes: List[str], limit_77: Dict, limit_labels: Dict,
                     codes_df: pd.DataFrame, stop_requested_check: Optional[Callable] = None,
-                    max_labels: int = 6, context: str = "") -> Tuple[str, pd.DataFrame]:
-    """Process a single response and assign codes"""
-    global questions_dict
+                    max_labels: int = 6, context: str = "",
+                    coding_mode: str = "hybrid_luna") -> Tuple[str, pd.DataFrame]:
+    """Process a single response using the AI Coding Engine (Hybrid / Jev / Luna / Sol)"""
+    global questions_dict, REVIEW_CANDIDATES
     
-    response_str = str(response).strip().lower()
+    response_str = str(response).strip()
     is_single_response = '(respuesta única)' in question or max_labels == 1
+    effective_max = 1 if is_single_response else max_labels
 
-    excluded_codes = {'66', '77', '88', '99', '777', '888', '999'}
-    filtered_labels_codes = [
-        (label, code) for label, code in zip(available_labels, available_codes)
-        if str(code) not in excluded_codes
-    ]
-    filtered_labels, filtered_codes = zip(*filtered_labels_codes) if filtered_labels_codes else ([], [])
+    # Preparar catálogo estructurado para el motor
+    catalog = []
+    for label, code in zip(available_labels, available_codes):
+        c_str = str(code).strip()
+        if c_str not in {'66', '777', '888', '999'}:
+            catalog.append({"code": c_str, "label": str(label).strip(), "description": ""})
 
-    # print(f"[Processing response for question '{question}']")
-
-    assigned_codes = assign_labels_to_response(
-        question, response_str, list(filtered_labels), list(filtered_codes), 
-        is_single_response, stop_requested_check,
-        max_labels=max_labels, context=context
+    # Invocar el motor inteligente con Caché + Fast-Path Jev + Escalado LLM
+    coding_res = global_ai_engine.code_single(
+        question=question,
+        response=response_str,
+        catalog=catalog,
+        mode=coding_mode,
+        max_labels=effective_max,
+        context=context,
+        use_cache=True
     )
     
-    if assigned_codes == "NEW_LABEL_NEEDED" or assigned_codes == "":
-        print(f"Etiqueta nueva necesaria para la respuesta: '{response_str}'")
+    assigned_codes = coding_res.codes
 
-        # Check column limit of new labels
-        # Note: If max is 0, this condition is true (count >= 0)
-        if limit_labels['count'] >= limit_labels['max']:
-            print(f"Límite de nuevas etiquetas para esta pregunta alcanzado ({limit_labels['count']}/{limit_labels['max']}). Asignando código 77.")
-            assigned_codes = "77"
-        else:
+    # Si se requiere nueva etiqueta (asignó 77 o no encontró coincidencia) y aún hay límite permitido
+    if assigned_codes == "77" or assigned_codes == "NEW_LABEL_NEEDED" or not assigned_codes:
+        current_count = limit_labels.get('count', 0)
+        max_allowed = limit_labels.get('max', 8)
+        if current_count < max_allowed and max_allowed > 0:
+            filtered_labels = [e["label"] for e in catalog if e["code"] != "77"]
+            filtered_codes = [e["code"] for e in catalog if e["code"] != "77"]
             new_label = create_new_labels(
-                question, response_str, list(filtered_labels), list(filtered_codes), 
+                question, response_str, filtered_labels, filtered_codes, 
                 codes_df, stop_requested_check
             )
             
             if new_label:
-                # Verificar si la etiqueta ya existe en codes_df para esta pregunta (evitar duplicados)
                 existing_entry = codes_df.loc[
                     (codes_df['Nombre de la Pregunta'] == question) & 
                     (codes_df['Label'].astype(str).str.lower() == new_label.lower()), 
                     'Cod'
                 ]
-                
                 if not existing_entry.empty:
-                    # Usar código existente
-                    existing_code_val = existing_entry.iloc[0]
-                    try:
-                        assigned_codes = f"{int(existing_code_val):02d}"
-                    except:
-                        assigned_codes = str(existing_code_val)
-                    # print(f"Reutilizando etiqueta existente '{new_label}' con código {assigned_codes}")
+                    val = existing_entry.iloc[0]
+                    assigned_codes = f"{int(val):02d}" if str(val).isdigit() else str(val)
                 else:
-                    # Crear nuevo código si no existe
                     existing_codes = codes_df.loc[codes_df['Nombre de la Pregunta'] == question, 'Cod']
                     new_code = get_next_valid_code(existing_codes)
                     codes_df, label_created = save_new_label(codes_df, question, new_label, new_code)
-                    
                     if label_created:
-                        print(f"Nueva etiqueta creada: '{new_label}' con código {new_code}")
-
-                        # Update available lists for subsequent calls within this process
-                        # Note: This updates the lists in the caller's scope if they are mutable, 
-                        # but tuples are immutable. process_response receives lists though.
-                        # However, we passed converted lists from tuples.
-                        
-                        limit_labels['count'] += 1
+                        limit_labels['count'] = current_count + 1
                         limit_77['new_labels'].append((question, new_label, new_code))
-
                         if question in questions_dict:
                             questions_dict[question].add((new_code, new_label))
                         else:
                             questions_dict[question] = {(new_code, new_label)}
-                        
                         assigned_codes = new_code
                     else:
-                        print(f"No se pudo crear una nueva etiqueta para '{response_str}', asignando código 77")
                         assigned_codes = "77"
             else:
-                print(f"No se generó una nueva etiqueta para '{response_str}', asignando código 77")
                 assigned_codes = "77"
-    else:
-        # print(f"Etiqueta existente asignada: '{assigned_codes}' para la respuesta '{response_str}'")
-        pass
+        else:
+            assigned_codes = "77"
 
-    assigned_codes_list = re.findall(r'\d+', str(assigned_codes))
-    assigned_codes_list = [f"{int(code):02d}" for code in assigned_codes_list]
-    assigned_codes_list = list(set(assigned_codes_list))
+    # Formatear códigos con dos dígitos separados por ';'
+    nums = re.findall(r'\b\d+\b', str(assigned_codes))
+    formatted = []
+    for n in nums:
+        fmt = f"{int(n):02d}"
+        if fmt not in formatted:
+            formatted.append(fmt)
 
-    if is_single_response:
-        assigned_codes_list = assigned_codes_list[:1]
+    if is_single_response and formatted:
+        formatted = formatted[:1]
         
-    final_codes = ';'.join(assigned_codes_list)
+    final_codes = ';'.join(formatted) if formatted else "99"
 
-    # print(f"Códigos asignados finales para la respuesta '{response_str}': {final_codes}")
+    # Registrar en cola de revisión si el estado es incierto o asignó 77
+    if coding_res.status == "REVIEW_REQUIRED" or "77" in formatted or coding_res.confidence < 0.70:
+        REVIEW_CANDIDATES.append({
+            "question": question,
+            "response": response_str,
+            "suggested_codes": formatted,
+            "confidence": coding_res.confidence,
+            "routing": coding_res.routing,
+            "status": coding_res.status
+        })
+
     return final_codes, codes_df
 
 
@@ -454,11 +461,14 @@ def process_responses(responses_df: pd.DataFrame, codes_df: pd.DataFrame,
                      progress_callback: Optional[Callable] = None,
                      status_callback: Optional[Callable] = None,
                      save_callback: Optional[Callable[[pd.DataFrame, pd.DataFrame], None]] = None,
-                     skip_first_uncoded: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Process all responses and assign codes"""
+                     skip_first_uncoded: bool = False,
+                     coding_mode: str = "hybrid_luna",
+                     enable_clustering: bool = True,
+                     cluster_threshold: float = 85.0) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Process all responses and assign codes using configured AI coding mode and fuzzy clustering"""
     global PROCESS_STOPPED, MODIFIED_CELLS, questions_dict
     
-    print(f"EJECUTANDO PROCESS_RESPONSES (Skip first uncoded: {skip_first_uncoded})")
+    print(f"EJECUTANDO PROCESS_RESPONSES (Modo: {coding_mode} | Clustering: {enable_clustering} ({cluster_threshold}%) | Skip first uncoded: {skip_first_uncoded})")
     
     # Extract column names from config
     response_columns = [col['name'] for col in columns_config]
@@ -507,7 +517,7 @@ def process_responses(responses_df: pd.DataFrame, codes_df: pd.DataFrame,
         
         relevant_questions = column_to_questions.get(col, set())
         if not relevant_questions:
-            print(f"⚠️ No se encontraron preguntas asociadas a la columna {col}. Omitiendo.")
+            print(f"[!] No se encontraron preguntas asociadas a la columna {col}. Omitiendo.")
             continue
             
         print(f"Preguntas relevantes para columna {col}: {relevant_questions}")
@@ -515,7 +525,8 @@ def process_responses(responses_df: pd.DataFrame, codes_df: pd.DataFrame,
         if col.endswith('_OTRO') or col.endswith('_OTRA'):
             responses_df, updated_codes_df = process_other_columns(
                 responses_df, [col], questions_dict, updated_codes_df,
-                progress_callback, status_callback, total_records, check_stop
+                progress_callback, status_callback, total_records, check_stop,
+                coding_mode=coding_mode
             )
             
             # Save progress after processing 'other' column
@@ -535,13 +546,41 @@ def process_responses(responses_df: pd.DataFrame, codes_df: pd.DataFrame,
                 print(f"Columna {col} no encontrada en respuestas. Saltando.")
                 continue
 
-            unique_responses = responses_df[col].dropna().unique()
+            # 1. Pre-limpieza estricta de respuestas vacías y signos (. - ? * /)
+            empty_mask = responses_df[col].apply(is_empty_or_symbol)
+            if empty_mask.any():
+                unassigned_empty = empty_mask & (responses_df[code_column].fillna("").astype(str).str.strip() == "")
+                if unassigned_empty.any():
+                    responses_df.loc[unassigned_empty, code_column] = "99"
+                    for idx in responses_df.index[unassigned_empty]:
+                        MODIFIED_CELLS.add((idx, code_column))
+
+            # 2. Pre-agrupamiento difuso (Fuzzy Prototype Clustering)
+            cluster_members_map: Dict[str, List[str]] = {}
+            if enable_clustering:
+                non_empty_vals = responses_df.loc[~empty_mask, col].tolist()
+                cluster_summary = cluster_survey_responses(non_empty_vals, similarity_threshold=cluster_threshold)
+                cluster_members_map = cluster_summary.cluster_members
+                unique_responses = list(cluster_members_map.keys())
+                if status_callback and cluster_summary.saved_ai_calls > 0:
+                    status_callback(
+                        f"Pre-agrupamiento {col}: {cluster_summary.saved_ai_calls} llamadas ahorradas "
+                        f"({cluster_summary.compression_pct}% compresión) | {cluster_summary.prototypes_count} prototipos a codificar"
+                    )
+            else:
+                unique_responses = responses_df[col].dropna().unique()
+                cluster_members_map = {resp: [resp] for resp in unique_responses}
+
             for j, response in enumerate(unique_responses):
                 if PROCESS_STOPPED:
                     break
                     
-                if j % max(1, len(unique_responses)//100) == 0 and status_callback:
-                    status_callback(f"Procesando {col}: {j+1}/{len(unique_responses)}")
+                if j % max(1, len(unique_responses)//50) == 0 and status_callback:
+                    c_stats = global_cache.get_stats()
+                    status_callback(
+                        f"Procesando {col} ({coding_mode}): {j+1}/{len(unique_responses)} | "
+                        f"Caché: {c_stats['cache_hits']} | Reglas: {c_stats['rule_hits']}"
+                    )
                 
                 # Check if this cell was already manually coded/processed
                 mask = responses_df[col] == response
@@ -567,20 +606,26 @@ def process_responses(responses_df: pd.DataFrame, codes_df: pd.DataFrame,
                 # Found an uncoded cell!
                 if skip_first_uncoded:
                     print(f"Skipping crash row for response: {response}")
-                    # Assign error/skip code
-                    assigned_codes = "99" # Or specific code for skipped/error
+                    assigned_codes = "99"
                     
                     responses_df.loc[mask, code_column] = assigned_codes
-                    
                     modified_indices = responses_df.index[mask].tolist()
                     for idx in modified_indices:
                         MODIFIED_CELLS.add((idx, code_column))
                     
+                    # Propagar al cluster si aplica
+                    cluster_children = cluster_members_map.get(response, [])
+                    for child in cluster_children:
+                        if child != response:
+                            child_mask = responses_df[col] == child
+                            responses_df.loc[child_mask, code_column] = assigned_codes
+                            for c_idx in responses_df.index[child_mask]:
+                                MODIFIED_CELLS.add((c_idx, code_column))
+
                     processed_records += 1
                     if progress_callback and total_records > 0:
                         progress_callback(processed_records / total_records)
                         
-                    # Reset flag so we only skip ONE
                     skip_first_uncoded = False
                     continue
 
@@ -619,17 +664,27 @@ def process_responses(responses_df: pd.DataFrame, codes_df: pd.DataFrame,
                     assigned_codes, updated_codes_df = process_response(
                         question, response, available_labels, available_codes, 
                         limit_77, current_col_limit, updated_codes_df, check_stop,
-                        max_labels=max_labels, context=context
+                        max_labels=max_labels, context=context, coding_mode=coding_mode
                     )
                     
                     limit_labels['col_counters'][col] = current_col_limit['count']
 
+                    # Asignar código al prototipo
                     responses_df.loc[mask, code_column] = assigned_codes
-                    
                     modified_indices = responses_df.index[mask].tolist()
                     for idx in modified_indices:
                         MODIFIED_CELLS.add((idx, code_column))
-                    
+
+                    # Propagar código automáticamente a todos los miembros del clúster
+                    cluster_children = cluster_members_map.get(response, [])
+                    for child in cluster_children:
+                        if child != response:
+                            child_mask = responses_df[col] == child
+                            # Solo asignar a celdas que no tenían código manual asignado
+                            responses_df.loc[child_mask, code_column] = assigned_codes
+                            for c_idx in responses_df.index[child_mask]:
+                                MODIFIED_CELLS.add((c_idx, code_column))
+
                     processed_records += 1
                     if progress_callback and total_records > 0:
                         progress_callback(processed_records / total_records)
@@ -650,11 +705,12 @@ def process_other_columns(responses_df: pd.DataFrame, response_columns: List[str
                          status_callback: Optional[Callable] = None,
                          total_records: int = 0,
                          stop_requested: Optional[Callable] = None,
-                         start_code: int = 501) -> Tuple[pd.DataFrame, pd.DataFrame]:
+                         start_code: int = 501,
+                         coding_mode: str = "hybrid_luna") -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Process columns ending with _OTRO or _OTRA"""
     global MODIFIED_CELLS
     
-    print("EJECUTANDO PROCESS_OTHER_COLUMNS")
+    print(f"EJECUTANDO PROCESS_OTHER_COLUMNS (Modo: {coding_mode})")
     excluded_codes = {'66', '77', '88', '99', '00', '777', '888', '999'}
     new_labels = []
     processed_records = 0
@@ -699,7 +755,8 @@ def process_other_columns(responses_df: pd.DataFrame, response_columns: List[str
                         available_labels, available_codes,
                         {'count': 0, 'max': start_code, 'new_code': 0, 'new_labels': new_labels},
                         {'count': 0, 'max': 8},
-                        update_codes_df
+                        update_codes_df,
+                        coding_mode=coding_mode
                     )
 
                     current_codes = str(responses_df.at[idx, col_without_other]).strip()

@@ -148,6 +148,16 @@ class SessionManager:
         if self.session_exists(session_id):
             self.sessions[session_id]['config'] = config
             print(f"Session {session_id} config updated")
+
+    def set_metadata(self, session_id: str, key: str, value: Any) -> None:
+        """Store a small product reference alongside the temporary session."""
+        if self.session_exists(session_id):
+            self.sessions[session_id][key] = value
+
+    def get_metadata(self, session_id: str, key: str, default: Any = None) -> Any:
+        """Read optional session metadata without exposing the whole session."""
+        session = self.get_session(session_id)
+        return session.get(key, default) if session else default
     
     def update_session_results(self, session_id: str, results: Dict[str, Any]) -> None:
         """

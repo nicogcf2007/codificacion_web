@@ -14,12 +14,19 @@ frontend/dist/
 backend/.env
 frontend/.env
 
-# IDE
+# IDE & Agents
 .vscode/
 .idea/
 .cursor/
+.agents/
+.claude/
+.kiro/
+skills-lock.json
 
 # Project specific
 backend/temp_uploads/
+backend/data/
+*.sqlite3
+*.sqlite3-*
 *.xlsx
 *.xls

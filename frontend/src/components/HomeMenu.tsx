@@ -1,7 +1,7 @@
 import React from 'react';
 
 interface HomeMenuProps {
-  onSelectOption: (option: 'codify' | 'review' | 'temp-files') => void;
+  onSelectOption: (option: 'codify' | 'review' | 'temp-files' | 'workspace') => void;
 }
 
 const HomeMenu: React.FC<HomeMenuProps> = ({ onSelectOption }) => {
@@ -100,6 +100,20 @@ const HomeMenu: React.FC<HomeMenuProps> = ({ onSelectOption }) => {
             <p className="text-sm text-gray-500 text-center leading-relaxed">
               Descarga archivos guardados de procesos anteriores o interrumpidos.
             </p>
+          </button>
+
+          {/* Option 4: Workspace */}
+          <button
+            onClick={() => onSelectOption('workspace')}
+            className="group relative flex flex-col items-center p-6 bg-white border-2 border-amber-100 rounded-xl hover:border-amber-500 hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 text-left"
+          >
+            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mb-4 group-hover:bg-amber-500 transition-colors duration-300">
+              <svg className="w-8 h-8 text-amber-600 group-hover:text-white transition-colors duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 012-2h5l2 2h7a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-bold text-gray-800 mb-2 group-hover:text-amber-600 transition-colors text-center">Mis proyectos</h3>
+            <p className="text-sm text-gray-500 text-center leading-relaxed">Guarda catálogos, consulta trabajos y revisa casos pendientes.</p>
           </button>
         </div>
 

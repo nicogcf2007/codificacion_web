@@ -7,9 +7,10 @@ import type { UploadedFiles, UploadResponse } from '../types';
 interface FileUploadProps {
   onFilesUploaded: (data: UploadResponse) => void;
   onBack?: () => void;
+  projectId?: string;
 }
 
-const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded, onBack }) => {
+const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded, onBack, projectId }) => {
   const [files, setFiles] = useState<UploadedFiles>({
     responses: null,
     codes: null,
@@ -242,7 +243,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded, onBack }) => {
     setUploading(true);
 
     try {
-      const response = await uploadFiles(files.responses, files.codes);
+      const response = await uploadFiles(files.responses, files.codes, projectId);
       toast.success('Archivos cargados exitosamente');
       onFilesUploaded(response);
     } catch (error) {

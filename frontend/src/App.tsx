@@ -8,6 +8,8 @@ import ProcessingMonitor from './components/ProcessingMonitor';
 import Results from './components/Results';
 import ManualCoding from './components/ManualCoding';
 import TempFilesList from './components/TempFilesList';
+import Workspace from './components/Workspace';
+import ReviewQueue from './components/ReviewQueue';
 import { wsClient } from './services/websocket';
 import { startProcessing, startReview, handleAPIError, cleanupSession } from './services/api';
 import type {
@@ -24,9 +26,16 @@ function App() {
   const [columns, setColumns] = useState<string[]>([]);
   const [results, setResults] = useState<ProcessingResults | null>(null);
   const [pendingConfig, setPendingConfig] = useState<ProcessingConfig | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [activeCatalogId, setActiveCatalogId] = useState<string | null>(null);
   const [mode, setMode] = useState<'codify' | 'review'>('codify'); // New state for mode
 
-  const handleMenuSelection = (option: 'codify' | 'review' | 'temp-files') => {
+  const handleMenuSelection = (option: 'codify' | 'review' | 'temp-files' | 'workspace') => {
+    if (option === 'workspace') {
+      setStep('workspace');
+      return;
+    }
     if (option === 'temp-files') {
       setStep('temp-files');
       return;
@@ -37,6 +46,19 @@ function App() {
     } else {
         setStep('upload-review');
     }
+  };
+
+  const handleUseProject = (projectId: string, catalogId?: string) => {
+    setActiveProjectId(projectId);
+    setActiveCatalogId(catalogId || null);
+    setMode('codify');
+    setStep('upload');
+    toast.success('Proyecto seleccionado para la próxima codificación');
+  };
+
+  const handleOpenJob = (selectedJobId: string) => {
+    setJobId(selectedJobId);
+    setStep('review-queue');
   };
 
   const handleFilesUploaded = (data: UploadResponse) => {
@@ -50,7 +72,13 @@ function App() {
   };
 
   const handleConfigComplete = (config: ProcessingConfig) => {
-    setPendingConfig(config);
+    const enrichedConfig: ProcessingConfig = {
+      ...config,
+      project_id: activeProjectId || undefined,
+      catalog_id: activeCatalogId || undefined,
+      job_name: activeProjectId ? 'Codificación del proyecto' : undefined,
+    };
+    setPendingConfig(enrichedConfig);
     
     // Logic branch:
     // If mode is 'codify', go to manual coding first
@@ -58,7 +86,7 @@ function App() {
     if (mode === 'codify') {
         setStep('manual-coding');
     } else {
-        handleStartReviewProcess(config);
+        handleStartReviewProcess(enrichedConfig);
     }
   };
 
@@ -143,6 +171,7 @@ function App() {
       // 2. Iniciar procesamiento en backend
       const response = await startProcessing(sessionId, config);
       setTaskId(response.task_id);
+      setJobId(response.job_id || null);
       
       // 3. Cambiar vista al monitor
       setStep('processing');
@@ -170,8 +199,11 @@ function App() {
     setStep('home'); // Go back to home menu
     setSessionId(null);
     setTaskId(null);
+    setJobId(null);
     setColumns([]);
     setResults(null);
+    setActiveProjectId(null);
+    setActiveCatalogId(null);
     setMode('codify');
   };
 
@@ -189,10 +221,19 @@ function App() {
         <HomeMenu onSelectOption={handleMenuSelection} />
       )}
 
+      {step === 'workspace' && (
+        <Workspace
+          onBack={() => setStep('home')}
+          onUseProject={handleUseProject}
+          onOpenJob={handleOpenJob}
+        />
+      )}
+
       {step === 'upload' && (
         <FileUpload 
             onFilesUploaded={handleFilesUploaded} 
             onBack={() => setStep('home')}
+            projectId={activeProjectId || undefined}
         />
       )}
 
@@ -200,6 +241,7 @@ function App() {
         <FileUploadReview 
             onFilesUploaded={handleFilesUploaded}
             onBack={() => setStep('home')}
+            projectId={activeProjectId || undefined}
         />
       )}
 
@@ -235,7 +277,12 @@ function App() {
           results={results}
           onReset={handleReset}
           onStartReview={() => setStep('processing')}
+          onOpenHumanReview={jobId ? () => setStep('review-queue') : undefined}
         />
+      )}
+
+      {step === 'review-queue' && jobId && (
+        <ReviewQueue jobId={jobId} onBack={() => setStep('workspace')} />
       )}
 
       {step === 'temp-files' && (

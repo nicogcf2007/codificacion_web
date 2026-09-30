@@ -9,13 +9,15 @@ interface FileUploadProps {
   title?: string;
   subtitle?: string;
   onBack?: () => void;
+  projectId?: string;
 }
 
 const FileUploadReview: React.FC<FileUploadProps> = ({ 
     onFilesUploaded, 
     title = "Cargar Archivos para Revisión",
     subtitle = "Sube el archivo de respuestas ya codificado y el archivo de códigos",
-    onBack
+    onBack,
+    projectId
 }) => {
   const [responsesFile, setResponsesFile] = React.useState<File | null>(null);
   const [codesFile, setCodesFile] = React.useState<File | null>(null);
@@ -59,7 +61,7 @@ const FileUploadReview: React.FC<FileUploadProps> = ({
 
     setUploading(true);
     try {
-      const response = await uploadFiles(responsesFile, codesFile);
+      const response = await uploadFiles(responsesFile, codesFile, projectId);
       toast.success('Archivos cargados exitosamente');
       onFilesUploaded(response);
     } catch (error) {

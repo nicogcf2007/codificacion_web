@@ -18,6 +18,9 @@ const Configuration: React.FC<ConfigurationProps> = ({
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
   const [columnConfigs, setColumnConfigs] = useState<Record<string, ColumnConfig>>({});
   const [maxNewLabels, setMaxNewLabels] = useState(8);
+  const [codingMode, setCodingMode] = useState<import('../types').CodingMode>('hybrid_luna');
+  const [enableClustering, setEnableClustering] = useState<boolean>(true);
+  const [clusterThreshold, setClusterThreshold] = useState<number>(80);
   // const [startCode, setStartCode] = useState(501); // Removed per requirement
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedColumn, setExpandedColumn] = useState<string | null>(null);
@@ -83,6 +86,9 @@ const Configuration: React.FC<ConfigurationProps> = ({
       question_column: 'Nombre de la Pregunta',
       max_new_labels: maxNewLabels, // Kept for backward compat, but logic uses per-column
       start_code: 501, 
+      coding_mode: codingMode,
+      enable_clustering: enableClustering,
+      cluster_threshold: clusterThreshold,
     };
 
     onStartProcessing(config);
@@ -376,6 +382,75 @@ const Configuration: React.FC<ConfigurationProps> = ({
                   </h2>
 
                   <div className="space-y-5">
+                    {/* Selector de Modo de Codificación con IA */}
+                    <div>
+                      <label className="block text-sm font-bold text-gray-800 mb-2 flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-indigo-600"></span>
+                        Modo de Codificación (IA)
+                      </label>
+                      <div className="space-y-2">
+                        <label className={`block p-2.5 rounded-lg border cursor-pointer transition-all ${codingMode === 'hybrid_luna' ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
+                          <div className="flex items-start">
+                            <input
+                              type="radio"
+                              name="codingMode"
+                              value="hybrid_luna"
+                              checked={codingMode === 'hybrid_luna'}
+                              onChange={() => setCodingMode('hybrid_luna')}
+                              className="mt-1 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <div className="ml-2 text-xs">
+                              <div className="flex items-center gap-1 font-bold text-gray-900">
+                                <span>🟢 Híbrido Luna</span>
+                                <span className="bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded text-[10px]">Recomendado</span>
+                              </div>
+                              <p className="text-gray-500 text-[11px] mt-0.5">Jev Fast-Path + GPT-6-Luna (~$0.038/1k)</p>
+                            </div>
+                          </div>
+                        </label>
+
+                        <label className={`block p-2.5 rounded-lg border cursor-pointer transition-all ${codingMode === 'hybrid_sol' ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
+                          <div className="flex items-start">
+                            <input
+                              type="radio"
+                              name="codingMode"
+                              value="hybrid_sol"
+                              checked={codingMode === 'hybrid_sol'}
+                              onChange={() => setCodingMode('hybrid_sol')}
+                              className="mt-1 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <div className="ml-2 text-xs">
+                              <div className="flex items-center gap-1 font-bold text-gray-900">
+                                <span>🔵 Híbrido SOL</span>
+                                <span className="bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded text-[10px]">60% Exactitud</span>
+                              </div>
+                              <p className="text-gray-500 text-[11px] mt-0.5">Jev Fast-Path + GPT-6.1-SOL (~$0.48/1k)</p>
+                            </div>
+                          </div>
+                        </label>
+
+                        <label className={`block p-2.5 rounded-lg border cursor-pointer transition-all ${codingMode === 'jev_express' ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
+                          <div className="flex items-start">
+                            <input
+                              type="radio"
+                              name="codingMode"
+                              value="jev_express"
+                              checked={codingMode === 'jev_express'}
+                              onChange={() => setCodingMode('jev_express')}
+                              className="mt-1 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <div className="ml-2 text-xs">
+                              <div className="flex items-center gap-1 font-bold text-gray-900">
+                                <span>⚡ Jev Express</span>
+                                <span className="bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded text-[10px]">0.6s / rta</span>
+                              </div>
+                              <p className="text-gray-500 text-[11px] mt-0.5">Clasificador Puro TypeSafe (~$0.015/1k)</p>
+                            </div>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+
                     {/* Max New Labels */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -395,6 +470,43 @@ const Configuration: React.FC<ConfigurationProps> = ({
                       <p className="text-xs text-gray-500 mt-2 bg-yellow-50 p-2 rounded border border-yellow-100">
                         <strong>Nota:</strong> Este es el límite de códigos <em>nuevos</em> que la IA puede crear si no encuentra uno existente. (0 = Solo usar lista existente)
                       </p>
+                    </div>
+
+                    {/* Pre-agrupamiento Difuso Inteligente */}
+                    <div className="p-3 bg-indigo-50/60 rounded-lg border border-indigo-100 shadow-sm">
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-bold text-gray-800 flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={enableClustering}
+                            onChange={(e) => setEnableClustering(e.target.checked)}
+                            className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                          />
+                          <span>🎯 Pre-agrupamiento Inteligente</span>
+                        </label>
+                        <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded">
+                          Ahorro ~50-70%
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-600 mt-1">
+                        Pre-limpia vacíos/signos y agrupa variantes difusas similares (ej. <em>"Coca-Cola"</em>, <em>"Me gusta la Coca-Cola"</em>) para codificar solo el prototipo.
+                      </p>
+                      {enableClustering && (
+                        <div className="mt-2.5 pt-2 border-t border-indigo-100 flex items-center justify-between">
+                          <span className="text-xs text-gray-700 font-medium">Umbral de Similitud:</span>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="number"
+                              min="50"
+                              max="100"
+                              value={clusterThreshold}
+                              onChange={(e) => setClusterThreshold(Math.max(50, Math.min(100, parseInt(e.target.value) || 80)))}
+                              className="input-field w-16 text-center font-mono text-sm py-1"
+                            />
+                            <span className="text-xs text-gray-600 font-bold">%</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className="pt-4 border-t space-y-3">

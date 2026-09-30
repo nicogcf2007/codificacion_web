@@ -1,7 +1,8 @@
 import os
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load environment variables from backend/.env or root .env
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 load_dotenv()
 
 # Get API key from environment
