@@ -14,7 +14,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         start_time = time.time()
         
         # Log request
-        print(f"→ {request.method} {request.url.path}")
+        print(f"-> {request.method} {request.url.path}")
         
         # Process request
         response = await call_next(request)
@@ -23,7 +23,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         duration = time.time() - start_time
         
         # Log response
-        print(f"← {request.method} {request.url.path} - {response.status_code} ({duration:.3f}s)")
+        print(f"<- {request.method} {request.url.path} - {response.status_code} ({duration:.3f}s)")
         
         return response
 
