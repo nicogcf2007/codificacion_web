@@ -1,8 +1,9 @@
 services:
   backend:
-    image: codificacion-backend:v2.0.1
     build:
       context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL:-sqlite:////app/data/modern.sqlite3}
       CODING_PROVIDER: ${CODING_PROVIDER:-openai}
@@ -20,45 +21,31 @@ services:
       - "8020"
     volumes:
       - codificacion_data:/app/data
-    networks:
-      - internal
-      - dokploy-network
-    restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8020/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 15s
+    networks:
+      - dokploy-network
 
   frontend:
-    image: codificacion-frontend:v2.0.1
     build:
       context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
     expose:
       - "80"
     networks:
-      - internal
       - dokploy-network
-    restart: unless-stopped
-    depends_on:
-      - backend
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=dokploy-network"
-      - "traefik.http.routers.codificacion-web.rule=Host(`codificacion.cnccol.com`)"
-      - "traefik.http.routers.codificacion-web.entrypoints=web"
-      - "traefik.http.services.codificacion-web.loadbalancer.server.port=80"
-      - "traefik.http.routers.codificacion-websecure.rule=Host(`codificacion.cnccol.com`)"
-      - "traefik.http.routers.codificacion-websecure.entrypoints=websecure"
-      - "traefik.http.routers.codificacion-websecure.tls=true"
-      - "traefik.http.services.codificacion-websecure.loadbalancer.server.port=80"
-
-networks:
-  internal:
-    driver: bridge
-  dokploy-network:
-    external: true
 
 volumes:
-  codificacion_data:
+  codificacion_data: null
+
+networks:
+  dokploy-network:
+    external: true
