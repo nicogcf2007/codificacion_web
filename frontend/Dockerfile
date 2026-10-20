@@ -6,7 +6,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-ARG CACHEBUST=20261020_v5
+ARG CACHEBUST=20261020_v6
 
 COPY . .
 
