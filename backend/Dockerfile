@@ -8,11 +8,16 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY main.py ./
+COPY modern/ ./modern/
+COPY api/__init__.py ./api/__init__.py
+COPY api/v1/ ./api/v1/
+COPY core/ ./core/
+
 
 RUN groupadd --system app \
     && useradd --system --gid app --home-dir /app --no-create-home app \
-    && mkdir -p /app/temp_uploads \
+    && mkdir -p /app/data \
     && chown -R app:app /app
 
 USER app

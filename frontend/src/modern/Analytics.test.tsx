@@ -1,0 +1,20 @@
+import { afterEach, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { AnalyticsPanel } from "./Analytics";
+import { api } from "./api";
+import type { Job } from "./types";
+const job: Job = { id: "j", project_id: "p", survey_id: "s", name: "Resultados sintéticos", status: "COMPLETED", progress: 100, total_records: 2, processed_records: 2, provider_mode: "demo", pause_reason: null, created_at: "", updated_at: "", questions: [], metrics: { api_calls: 0, saved_calls: 0, savings_pct: 0, cost_usd: null, saved_usd: null, purity: null, records_per_second: 0, eta_seconds: null, input_tokens: 0, output_tokens: 0 } };
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+it("labels demonstration data without technical details and preserves CSV/Excel exports", async () => {
+  vi.spyOn(api, "request").mockResolvedValue({ distribution: [{ question_id: "q", column_name: "P1", code: "01", label: "Ejemplo", count: 2 }], total_records: 2, processed_records: 2, pending_review: 0 });
+  const download = vi.spyOn(api, "download").mockResolvedValue(undefined);
+  render(<AnalyticsPanel job={job} report={vi.fn()} />);
+  await screen.findByText("Ejemplo");
+  expect(screen.getByText("Datos de demostración; no usar como resultados reales")).toBeTruthy();
+  expect(screen.queryAllByText(/motor|OpenAI|modelo|proveedor|API conectada|IA bloqueada/i)).toHaveLength(0);
+  fireEvent.click(screen.getByRole("button", { name: "CSV" }));
+  await waitFor(() => expect(download).toHaveBeenCalledWith("j", "csv"));
+  await waitFor(() => expect((screen.getByRole("button", { name: "Excel" }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "Excel" }));
+  await waitFor(() => expect(download).toHaveBeenCalledWith("j", "xlsx"));
+});

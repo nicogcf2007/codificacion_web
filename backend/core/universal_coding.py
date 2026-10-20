@@ -11,7 +11,20 @@ import copy
 import math
 from typing import Any
 
-from typesafe_sdk import Choice, Noul
+try:
+    from typesafe_sdk import Choice, Noul
+except ImportError:
+    class Choice:
+        def __init__(self, instructions: Any = None, criteria: Any = None):
+            self.type = "choice"
+            self.instructions = instructions
+            self.criteria = criteria or {}
+
+    class Noul:
+        def __init__(self, instructions: Any = None, criteria: Any = None):
+            self.type = "noul"
+            self.instructions = instructions
+            self.criteria = criteria or {}
 
 
 class InvalidCodingRequest(ValueError):
