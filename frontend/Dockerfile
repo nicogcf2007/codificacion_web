@@ -6,6 +6,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
+ARG CACHEBUST=20261020_v5
+
 COPY . .
 
 # No VITE_API_URL needed - all requests go through nginx proxy (same origin)

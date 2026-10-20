@@ -50,7 +50,7 @@ def create_app(database_url=None, provider=None, *, admin_email=None, admin_pass
                    admin_password if admin_password is not None else os.getenv('CNC_ADMIN_PASSWORD'),
                    admin_name if admin_name is not None else os.getenv('CNC_ADMIN_NAME'))
 
-    mode = getattr(provider, "mode", None) or os.getenv("CODING_PROVIDER") or ("openai" if os.getenv("OPENAI_API_KEY") else "demo")
+    mode = getattr(provider, "mode", None) or os.getenv("CODING_PROVIDER") or "blocked"
     if mode not in {"blocked", "demo", "openai"}:
         raise ValueError("CODING_PROVIDER debe ser blocked, demo u openai")
     runtime = Runtime(repo, provider or provider_for(mode))

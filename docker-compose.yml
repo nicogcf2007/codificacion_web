@@ -23,10 +23,10 @@ services:
       - codificacion_data:/app/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8020/health', timeout=5)"]
-      interval: 30s
-      timeout: 10s
+      interval: 15s
+      timeout: 5s
       retries: 5
-      start_period: 15s
+      start_period: 10s
     networks:
       - dokploy-network
 
@@ -36,8 +36,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     expose:
       - "80"
     networks:
