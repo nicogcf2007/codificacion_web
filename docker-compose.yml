@@ -1,5 +1,6 @@
 services:
   backend:
+    image: codificacion-backend:v2.2.0
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -31,6 +32,7 @@ services:
       - dokploy-network
 
   frontend:
+    image: codificacion-frontend:v2.2.0
     build:
       context: ./frontend
       dockerfile: Dockerfile
