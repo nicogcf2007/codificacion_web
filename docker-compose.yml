@@ -1,5 +1,6 @@
 services:
   backend:
+    image: codificacion-backend:v2.0.1
     build:
       context: ./backend
     environment:
@@ -31,6 +32,7 @@ services:
       start_period: 15s
 
   frontend:
+    image: codificacion-frontend:v2.0.1
     build:
       context: ./frontend
     expose:
@@ -40,21 +42,7 @@ services:
       - dokploy-network
     restart: unless-stopped
     depends_on:
-      backend:
-        condition: service_healthy
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=dokploy-network"
-      - "traefik.http.routers.codificacion-codificacion-sqbv9c-25-web.rule=Host(`codificacion.cnccol.com`)"
-      - "traefik.http.routers.codificacion-codificacion-sqbv9c-25-web.entrypoints=web"
-      - "traefik.http.services.codificacion-codificacion-sqbv9c-25-web.loadbalancer.server.port=80"
-      - "traefik.http.routers.codificacion-codificacion-sqbv9c-25-web.service=codificacion-codificacion-sqbv9c-25-web"
-      - "traefik.http.routers.codificacion-codificacion-sqbv9c-25-web.middlewares=redirect-to-https@file"
-      - "traefik.http.routers.codificacion-codificacion-sqbv9c-25-websecure.rule=Host(`codificacion.cnccol.com`)"
-      - "traefik.http.routers.codificacion-codificacion-sqbv9c-25-websecure.entrypoints=websecure"
-      - "traefik.http.services.codificacion-codificacion-sqbv9c-25-websecure.loadbalancer.server.port=80"
-      - "traefik.http.routers.codificacion-codificacion-sqbv9c-25-websecure.service=codificacion-codificacion-sqbv9c-25-websecure"
-      - "traefik.http.routers.codificacion-codificacion-sqbv9c-25-websecure.tls.certresolver=letsencrypt"
+      - backend
 
 networks:
   internal:
