@@ -43,6 +43,16 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=dokploy-network"
+      - "traefik.http.routers.codificacion-web.rule=Host(`codificacion.cnccol.com`)"
+      - "traefik.http.routers.codificacion-web.entrypoints=web"
+      - "traefik.http.services.codificacion-web.loadbalancer.server.port=80"
+      - "traefik.http.routers.codificacion-websecure.rule=Host(`codificacion.cnccol.com`)"
+      - "traefik.http.routers.codificacion-websecure.entrypoints=websecure"
+      - "traefik.http.routers.codificacion-websecure.tls=true"
+      - "traefik.http.services.codificacion-websecure.loadbalancer.server.port=80"
 
 networks:
   internal:
