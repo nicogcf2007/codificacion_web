@@ -91,13 +91,32 @@ def export(repo, id, format):
     added = [f"C{q['column_name']}_{i+1}" for q in job['questions'] for i in range(q['max_labels'])]
     if len(set(added)) != len(added) or set(added) & set(original_columns):
         raise HTTPException(409, 'Las columnas CNC entrarían en conflicto con columnas originales')
+
+    orig_map = {}
+    for idx, col in enumerate(original_columns):
+        cleaned = str(col).strip().upper()
+        if cleaned not in orig_map:
+            orig_map[cleaned] = (idx + 1, col)
+
+    existing_question_cols = {}
+    for q in job['questions']:
+        target = f"C{q['column_name']}".strip().upper()
+        if target in orig_map:
+            col_idx, orig_col_name = orig_map[target]
+            existing_question_cols[q['id']] = (col_idx, orig_col_name)
+
     output = [dict(row) | {column:'' for column in added} for row in survey['rows']]
     questions = {q['id']:q for q in job['questions']}
     with repo.engine.connect() as conn:
         for record in conn.execute(select(db.records).where(db.records.c.job_id == id)).mappings():
             q = questions[record['question_id']]
-            for i, code in enumerate(record['codes']):
+            codes = record['codes']
+            for i, code in enumerate(codes):
                 output[record['response_id']][f"C{q['column_name']}_{i+1}"] = code
+            if q['id'] in existing_question_cols:
+                _, orig_name = existing_question_cols[q['id']]
+                output[record['response_id']][orig_name] = ';'.join(codes) if codes else ''
+
     columns = original_columns + added
     if format == 'csv':
         stream = io.StringIO(newline='')
@@ -121,6 +140,12 @@ def export(repo, id, format):
                 for cell in row:
                     cell.value = safe_cell(cell.value)
         sheet = workbook.active
+        for col_idx, orig_name in existing_question_cols.values():
+            for row_index, row in enumerate(output, start=2):
+                val = row.get(orig_name, '')
+                if val:
+                    cell = sheet.cell(row_index, col_idx, safe_cell(val))
+                    cell.number_format = '@'
         for i, column in enumerate(added, start=len(original_columns)+1):
             sheet.cell(1,i,column)
         for row_index, row in enumerate(output,start=2):

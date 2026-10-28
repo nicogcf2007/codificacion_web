@@ -50,3 +50,31 @@ def test_human_review_analytics_and_safe_original_export(factory):
         assert events.status_code==200
         assert 'event: snapshot' in events.text
         assert 'COMPLETED' in events.text
+
+
+def test_export_populates_existing_in_place_code_columns(factory):
+    app = factory(provider=FakeProvider())
+    with TestClient(app) as client:
+        # Survey has question P3 and existing placeholder column CP3
+        data = 'id,CP3,P3\n001,,crédito rápido\n002,99,.\n'
+        *_, job = make_study(client, data)
+        id = job['id']
+        client.post(f'/api/v1/jobs/{id}/start')
+        assert wait_job(client, id)['status'] == 'COMPLETED'
+
+        exported = client.get(f'/api/v1/jobs/{id}/export?format=csv')
+        assert exported.status_code == 200
+        rows = list(csv.DictReader(io.StringIO(exported.content.decode('utf-8-sig'))))
+        assert rows[0]['CP3'] == '01'
+        assert rows[1]['CP3'] == '99'
+        assert rows[0]['CP3_1'] == '01'
+
+        excel = client.get(f'/api/v1/jobs/{id}/export?format=xlsx')
+        assert excel.status_code == 200
+        wb = load_workbook(io.BytesIO(excel.content))
+        ws = wb.active
+        # Column B is CP3, Row 2 is 001, Row 3 is 002
+        assert ws['B2'].value == '01'
+        assert ws['B3'].value == '99'
+        wb.close()
+
