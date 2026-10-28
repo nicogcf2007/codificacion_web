@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 from pathlib import PurePath
+import re
 from zipfile import ZipFile, BadZipFile
 from sqlalchemy import select, insert, update, func
 from core.clustering import cluster_survey_responses, is_empty_or_symbol
@@ -95,6 +96,57 @@ def initial_metrics(total, prototype_count):
                 eta_seconds=None, input_tokens=0, output_tokens=0)
 
 
+
+def find_code_column(column_name: str, survey_columns: list[str]) -> str | None:
+    norm_map = {str(c).strip().upper(): c for c in survey_columns}
+    cleaned = str(column_name).strip().upper()
+    candidates = [
+        f"C{cleaned}",
+        f"COD_{cleaned}",
+        f"{cleaned}_COD",
+        f"CODIGO_{cleaned}",
+        f"{cleaned}_CODIGO",
+    ]
+    if cleaned.startswith("P"):
+        candidates.insert(1, f"CP{cleaned[1:]}")
+    for cand in candidates:
+        if cand in norm_map and norm_map[cand] != column_name:
+            return norm_map[cand]
+    return None
+
+
+def extract_precoded_codes(raw_val, categories: list[dict], max_labels: int) -> list[str] | None:
+    if raw_val is None:
+        return None
+    if isinstance(raw_val, float):
+        if raw_val.is_integer():
+            raw_val = int(raw_val)
+        else:
+            return None
+    val_str = str(raw_val).strip()
+    if not val_str or val_str.lower() in {'nan', 'null', 'none', '.'}:
+        return None
+    raw_parts = [p.strip() for p in re.split(r'[;,]', val_str) if p.strip()]
+    if not raw_parts:
+        return None
+    allowed = {c['code'] for c in categories} | {'77', '88', '99'}
+    parsed_codes = []
+    for part in raw_parts:
+        cand = part
+        if cand in allowed:
+            parsed_codes.append(cand)
+        elif cand.isdigit() and cand.zfill(2) in allowed:
+            parsed_codes.append(cand.zfill(2))
+        else:
+            return None
+    if len(parsed_codes) > max_labels:
+        return None
+    deduped = list(dict.fromkeys(parsed_codes))
+    if len(deduped) > 1 and (set(deduped) & {'88', '99'}):
+        return None
+    return deduped if deduped else None
+
+
 class StudyRepository(Repository):
     def preview_books(self, project_id, filename, content):
         from .codebook_excel import read_codebook, public_preview
@@ -171,7 +223,7 @@ class StudyRepository(Repository):
     def create_job(self, data, provider_mode, actor_id=None):
         with self.engine.begin() as conn:
             survey = self.require(db.surveys, data.survey_id, conn)
-            job_id, frozen_questions, planned, empty_records = identity(), [], [], []
+            job_id, frozen_questions, planned, approved_records = identity(), [], [], []
             total = len(survey['rows']) * len(data.questions)
             for spec in data.questions:
                 book = self.require(db.codebooks, spec.codebook_id, conn)
@@ -179,27 +231,33 @@ class StudyRepository(Repository):
                     raise ValueError('Columna o catálogo no pertenece a la encuesta/proyecto')
                 question = dict(id=identity(), **spec.model_dump(), categories=book['categories'], max_labels=book['max_labels'])
                 frozen_questions.append(question)
+                code_col = find_code_column(spec.column_name, survey['columns'])
                 texts = [row.get(spec.column_name, '') for row in survey['rows']]
                 grouping = cluster_survey_responses(texts, similarity_threshold=85.0)
                 groups = {}
-                for index, text in enumerate(texts):
+                for index, row in enumerate(survey['rows']):
+                    text = row.get(spec.column_name, '')
                     text = str(text) if text is not None else ''
-                    if is_empty_or_symbol(text):
-                        empty_records.append(dict(id=identity(), job_id=job_id, question_id=question['id'], response_id=index, column_name=spec.column_name, text_original=text, codes=['99'], confidence=None, was_grouped=False, prototype_id=None, review_status='APPROVED', review_reason=None))
+                    precoded = extract_precoded_codes(row.get(code_col), book['categories'], book['max_labels']) if code_col else None
+                    if precoded is not None:
+                        approved_records.append(dict(id=identity(), job_id=job_id, question_id=question['id'], response_id=index, column_name=spec.column_name, text_original=text, codes=precoded, confidence=None, was_grouped=False, prototype_id=None, review_status='APPROVED', review_reason=None))
+                    elif is_empty_or_symbol(text):
+                        approved_records.append(dict(id=identity(), job_id=job_id, question_id=question['id'], response_id=index, column_name=spec.column_name, text_original=text, codes=['99'], confidence=None, was_grouped=False, prototype_id=None, review_status='APPROVED', review_reason=None))
                     else:
                         prototype = grouping.prototype_map[text.strip()]
                         groups.setdefault(prototype, []).append({'response_id':index, 'text':text})
                 for text, members in groups.items():
                     planned.append(dict(id=identity(), ordinal=len(planned), job_id=job_id, question_id=question['id'], text=text, members=members, state='PENDING', result=None, attempts=0))
             timestamp = now()
-            job = dict(id=job_id, project_id=survey['project_id'], survey_id=survey['id'], name=data.name, status='PENDING', questions=frozen_questions, total_records=total, processed_records=len(empty_records), provider_mode=provider_mode, pause_reason=None, pause_requested=False, metrics=initial_metrics(total, len(planned)), active_seconds=0, created_at=timestamp, updated_at=timestamp)
+            status = 'COMPLETED' if not planned else 'PENDING'
+            job = dict(id=job_id, project_id=survey['project_id'], survey_id=survey['id'], name=data.name, status=status, questions=frozen_questions, total_records=total, processed_records=len(approved_records), provider_mode=provider_mode, pause_reason=None, pause_requested=False, metrics=initial_metrics(total, len(planned)), active_seconds=0, created_at=timestamp, updated_at=timestamp)
             conn.execute(insert(db.jobs).values(**job))
             for question in frozen_questions:
                 conn.execute(insert(db.questions).values(id=question['id'], survey_id=survey['id'], column_name=question['column_name'], question_text=question['question_text'], codebook_id=question['codebook_id']))
             if planned:
                 conn.execute(insert(db.prototypes), planned)
-            if empty_records:
-                conn.execute(insert(db.records), empty_records)
+            if approved_records:
+                conn.execute(insert(db.records), approved_records)
             if actor_id:
                 conn.execute(insert(db.job_actors).values(job_id=job_id, actor_id=actor_id))
             record_activity(conn, actor_id, 'job_prepared', 'job', job_id, survey['project_id'], job_id)

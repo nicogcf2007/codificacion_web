@@ -29,3 +29,63 @@ def test_survey_codebook_job_are_durable_without_provider_calls(factory):
         assert bad.status_code == 422
         assert client.get('/api/v1/jobs').json()['jobs'] == [job]
         assert client.get('/api/temp-files').status_code == 404
+
+
+def test_precoded_rows_are_preserved_without_provider_calls(factory):
+    text = (
+        'id,P3,CP3\\n'
+        '001,servicio muy bueno,02\\n'
+        '002,otro motivo,\\n'
+        '003,.,\\n'
+        '004,atencion rapida,1\\n'
+        '005,doble motivo,01;02\\n'
+    ).encode().decode('unicode_escape')
+    with TestClient(factory()) as client:
+        project, book, survey, job = make_study(client, text=text)
+        assert job['total_records'] == 5
+        # 4 records are approved immediately (001 -> 02, 003 -> 99 empty, 004 -> 01, 005 -> 01;02)
+        assert job['processed_records'] == 4
+        assert job['status'] == 'PENDING'
+
+        # Check records
+        records = client.get(f"/api/v1/jobs/{job['id']}/records").json()['records']
+        rec_by_resp = {r['response_id']: r for r in records}
+
+        # Response 0: pre-coded '02'
+        assert rec_by_resp[0]['codes'] == ['02']
+        assert rec_by_resp[0]['review_status'] == 'APPROVED'
+
+        # Response 2: empty text -> '99'
+        assert rec_by_resp[2]['codes'] == ['99']
+        assert rec_by_resp[2]['review_status'] == 'APPROVED'
+
+        # Response 3: pre-coded '1' -> zfilled to '01'
+        assert rec_by_resp[3]['codes'] == ['01']
+        assert rec_by_resp[3]['review_status'] == 'APPROVED'
+
+        # Response 4: pre-coded multi '01;02'
+        assert rec_by_resp[4]['codes'] == ['01', '02']
+        assert rec_by_resp[4]['review_status'] == 'APPROVED'
+
+        # Response 1 is still pending in prototypes, not in records yet
+        assert 1 not in rec_by_resp
+
+
+def test_all_precoded_rows_immediately_completed_and_exportable(factory):
+    text = (
+        'id,P3,CP3\\n'
+        '001,servicio muy bueno,02\\n'
+        '002,atencion rapida,01\\n'
+    ).encode().decode('unicode_escape')
+    with TestClient(factory()) as client:
+        project, book, survey, job = make_study(client, text=text)
+        assert job['total_records'] == 2
+        assert job['processed_records'] == 2
+        assert job['status'] == 'COMPLETED'
+
+        # Should export without running runtime
+        export_res = client.get(f"/api/v1/jobs/{job['id']}/export?format=csv")
+        assert export_res.status_code == 200
+        csv_text = export_res.content.decode('utf-8-sig')
+        assert '02' in csv_text
+        assert '01' in csv_text
