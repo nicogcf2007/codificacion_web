@@ -391,6 +391,20 @@ function ConsoleWorkspace({ user, onLogout, onUser }: { user: User; onLogout: ()
                             </td>
                             <td>
                               <Status status={current.status} />
+                              {current.status === "PAUSED" && current.pause_reason && (
+                                <small
+                                  style={{
+                                    display: "block",
+                                    marginTop: "4px",
+                                    maxWidth: "260px",
+                                    fontSize: "0.78rem",
+                                    color: "var(--warning)",
+                                    lineHeight: 1.25,
+                                  }}
+                                >
+                                  {current.pause_reason}
+                                </small>
+                              )}
                             </td>
                             <td>
                               <div className="mini-progress">

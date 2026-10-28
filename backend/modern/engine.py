@@ -116,7 +116,7 @@ class OpenAIProvider:
             if status == 401:
                 raise ProviderPaused('Credencial de OpenAI inválida. Actualice la API Key y reanude.') from None
             if status == 429:
-                raise ProviderPaused('Saldo insuficiente o cuota excedida en OpenAI. Recargue créditos y reanude.') from None
+                raise ProviderPaused('Saldo insuficiente o cuota excedida en OpenAI. Recargue créditos en platform.openai.com y reanude.') from None
             if status and status < 500:
                 raise ProviderPaused(f'OpenAI rechazó la solicitud (HTTP {status}). Verifique modelo y parámetros; no se cambia el motor.') from None
             raise ProviderPaused('Resultado incierto: fallo de red o del proveedor. Reintentar podría generar otro cargo.', uncertain=True) from None

@@ -6,7 +6,7 @@ import {
   fireEvent,
   waitFor,
 } from "@testing-library/react";
-import { Monitor } from "./Monitor";
+import { Monitor, getPauseTitle, getActionGuide } from "./Monitor";
 import { api } from "./api";
 import type { Job } from "./types";
 afterEach(() => {
@@ -111,4 +111,40 @@ it("completed work shows persisted activity, not a false running indicator", asy
   expect(
     screen.queryByRole("button", { name: "Iniciar codificación" }),
   ).toBeNull();
+});
+
+it("shows specific pause reasons and actionable resolution guides when execution halts", () => {
+  expect(getPauseTitle("Saldo insuficiente o cuota excedida")).toBe("Pausa por saldo insuficiente o cuota de IA");
+  expect(getActionGuide("Saldo insuficiente o cuota excedida")?.action).toContain("platform.openai.com/billing");
+
+  expect(getPauseTitle("Credencial inválida")).toBe("Pausa por credencial de acceso no configurada");
+  expect(getActionGuide("Credencial inválida")?.action).toContain("OPENAI_API_KEY");
+
+  expect(getPauseTitle("Servidor reiniciado")).toBe("Pausa por reinicio del servidor");
+  expect(getActionGuide("Servidor reiniciado")?.action).toContain("Reanudar codificación");
+});
+
+it("renders the pause reason and actionable guide in the pause modal for quota errors", async () => {
+  const pausedJob: Job = {
+    ...base,
+    status: "PAUSED",
+    pause_reason: "Saldo insuficiente o cuota excedida en OpenAI. Recargue créditos en platform.openai.com y reanude.",
+  };
+  vi.spyOn(api, "observe").mockImplementation(async (_id, onSnapshot) => {
+    onSnapshot({ job: pausedJob, records: [] });
+  });
+  render(
+    <Monitor
+      job={pausedJob}
+      onUpdated={vi.fn()}
+      onReview={vi.fn()}
+      onAnalytics={vi.fn()}
+      report={vi.fn()}
+    />,
+  );
+  await waitFor(() => {
+    expect(screen.getAllByText("Pausa por saldo insuficiente o cuota de IA").length).toBeGreaterThan(0);
+    expect(screen.getByText("SOLUCIÓN RECOMENDADA")).toBeTruthy();
+    expect(screen.getAllByText(/platform\.openai\.com\/billing/).length).toBeGreaterThan(0);
+  });
 });

@@ -4,6 +4,66 @@ import { api, message, SessionExpired } from "./api";
 import { Status, Metric, Modal, number } from "./ui";
 import type { Job, CodedRecord } from "./types";
 
+export function getPauseTitle(reason: string | null): string {
+  if (!reason) return "La codificación está en pausa";
+  const lower = reason.toLowerCase();
+  if (lower.includes("saldo") || lower.includes("cuota")) {
+    return "Pausa por saldo insuficiente o cuota de IA";
+  }
+  if (lower.includes("credencial") || lower.includes("api key") || lower.includes("clave")) {
+    return "Pausa por credencial de acceso no configurada";
+  }
+  if (lower.includes("servidor reiniciado")) {
+    return "Pausa por reinicio del servidor";
+  }
+  if (lower.includes("pausa solicitada")) {
+    return "Pausa solicitada por el usuario";
+  }
+  if (lower.includes("incierto")) {
+    return "Pausa por resultado incierto de red";
+  }
+  return "La codificación está en pausa";
+}
+
+export function getActionGuide(reason: string | null): { cause: string; action: string } | null {
+  if (!reason) return null;
+  const lower = reason.toLowerCase();
+  if (lower.includes("saldo") || lower.includes("cuota")) {
+    return {
+      cause: "La cuenta de IA no tiene saldo disponible o alcanzó el límite de gasto mensual.",
+      action: "Recarga saldo en platform.openai.com/billing o amplía el límite mensual de facturación. Luego haz clic en «Reanudar codificación».",
+    };
+  }
+  if (lower.includes("credencial") || lower.includes("api key") || lower.includes("clave")) {
+    return {
+      cause: "La clave de acceso (API Key) no está configurada o fue invalidada en el servidor.",
+      action: "Verifica que la variable OPENAI_API_KEY esté correctamente configurada en el servidor y haz clic en «Reanudar codificación».",
+    };
+  }
+  if (lower.includes("servidor reiniciado")) {
+    return {
+      cause: "El servidor se reinició o actualizó mientras el proceso estaba activo. Todos los datos previos quedaron guardados.",
+      action: "Haz clic directamente en «Reanudar codificación» para continuar desde el punto de control sin repetir datos.",
+    };
+  }
+  if (lower.includes("pausa solicitada")) {
+    return {
+      cause: "La codificación fue detenida temporalmente por un usuario.",
+      action: "Cuando estés listo para continuar, haz clic en «Reanudar codificación».",
+    };
+  }
+  if (lower.includes("incierto") || lower.includes("red")) {
+    return {
+      cause: "Ocurrió una interrupción de conexión o respuesta incompleta de la red.",
+      action: "Marca la casilla de confirmación abajo y haz clic en «Reanudar codificación» para reintentar el registro pendiente.",
+    };
+  }
+  return {
+    cause: "Se presentó una interrupción durante el procesamiento.",
+    action: "Revisa el motivo indicado arriba. Si el problema persiste tras reanudar, contacta al administrador.",
+  };
+}
+
 export function Monitor({
   job,
   executionUnavailable = false,
@@ -78,6 +138,8 @@ export function Monitor({
   }, [live.status, live.pause_reason]);
   const uncertain =
     live.pause_reason?.toLocaleLowerCase().includes("incierto") || false;
+  const guide = getActionGuide(live.pause_reason);
+  const pauseTitle = getPauseTitle(live.pause_reason);
   const unavailable = executionUnavailable || live.provider_mode === "blocked";
   const act = async (action: "start" | "pause" | "resume") => {
     if (busy || (unavailable && action !== "pause")) return;
@@ -175,7 +237,32 @@ export function Monitor({
           </div>
         )}
         {live.pause_reason && (
-          <div className="notice warning">{uncertain ? "Resultado incierto. Confirma el reintento antes de continuar." : "La ejecución está en pausa. Si no puedes reanudarla, contacta al administrador."}</div>
+          <div
+            className="notice warning"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.35rem",
+              alignItems: "flex-start",
+            }}
+          >
+            <div className="row" style={{ gap: "0.5rem", alignItems: "center" }}>
+              <AlertCircle size={16} />
+              <strong>{pauseTitle}</strong>
+            </div>
+            <p style={{ margin: 0 }}>{live.pause_reason}</p>
+            {guide && (
+              <p
+                style={{
+                  margin: "0.2rem 0 0",
+                  color: "var(--foreground)",
+                  fontSize: "0.85rem",
+                }}
+              >
+                👉 <strong>Qué hacer:</strong> {guide.action}
+              </p>
+            )}
+          </div>
         )}
         <div className="metric-grid">
           <Metric
@@ -242,16 +329,50 @@ export function Monitor({
       <Modal
         open={alertOpen}
         onOpenChange={setAlertOpen}
-        title="La codificación está en pausa"
+        title={pauseTitle}
         description={
-          uncertain ? "Un resultado no pudo confirmarse. Los resultados anteriores permanecen guardados." : "Los resultados confirmados permanecen guardados."
+          uncertain
+            ? "Un resultado no pudo confirmarse por una interrupción. Los resultados anteriores permanecen guardados con seguridad."
+            : "Los resultados confirmados hasta el momento permanecen guardados con seguridad."
         }
       >
         <div className="form-stack">
-          <p className="muted">
-            Si la ejecución no puede continuar, contacta al administrador.
-            Reanuda después de resolver la causa.
-          </p>
+          {live.pause_reason && (
+            <div
+              className="notice warning"
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.25rem",
+                alignItems: "flex-start",
+              }}
+            >
+              <strong>Motivo del estado en pausa:</strong>
+              <p style={{ margin: 0 }}>{live.pause_reason}</p>
+            </div>
+          )}
+
+          {guide && (
+            <div
+              className="panel form-stack"
+              style={{
+                background: "var(--surface-sunken)",
+                padding: "0.85rem 1rem",
+                border: "1px solid var(--border)",
+              }}
+            >
+              <span className="eyebrow" style={{ color: "var(--primary)" }}>
+                SOLUCIÓN RECOMENDADA
+              </span>
+              <p style={{ margin: 0, fontSize: "0.9rem" }}>
+                <strong>Causa:</strong> {guide.cause}
+              </p>
+              <p style={{ margin: 0, fontSize: "0.9rem" }}>
+                <strong>¿Qué debes hacer?</strong> {guide.action}
+              </p>
+            </div>
+          )}
+
           {uncertain && (
             <label className="checkbox-label">
               <input

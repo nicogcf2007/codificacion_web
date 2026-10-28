@@ -30,6 +30,12 @@ async function checkResponse(response: Response, path = ""): Promise<void> {
 }
 
 function publicError(text: string): string {
+  if (/saldo|cuota/i.test(text)) {
+    return "Saldo insuficiente o cuota excedida en la cuenta de IA. Recarga créditos en platform.openai.com/billing y reanuda.";
+  }
+  if (/credencial.*inv[áa]lida|credencial.*ausente/i.test(text)) {
+    return "Credencial de IA inválida o no configurada. Actualiza la clave de acceso en el servidor y reanuda.";
+  }
   return /\b(?:openai|provider|proveedor|modelo?|motor|health|api|token|clave|credencial|coding_provider|app_access_token)\b|gpt-/i.test(text)
     ? "Ejecución no disponible. Contacta al administrador"
     : text;
